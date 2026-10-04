@@ -1,6 +1,6 @@
 # Architecture
 
-AK3S currently supports existing Hetzner Cloud VMs. Ansible handles operating system prerequisites and K3s over SSH or locally; Helm handles shared Kubernetes add-ons. `make install` runs both stages. Infrastructure stays under your control in the Hetzner Cloud Console, and installation needs no Hetzner API credentials. Check the [host and firewall requirements](hetzner.md) before installing.
+AK3S currently supports existing Hetzner Cloud VMs. A single Go CLI handles host prerequisites and K3s locally on each node; its pinned Helm binary handles shared Kubernetes add-ons. `ak3s install` runs both stages without Python, Ansible or a repository checkout. Infrastructure stays under your control in the Hetzner Cloud Console, and installation needs no Hetzner API credentials. Check the [host and firewall requirements](hetzner.md) before installing.
 
 ## Defaults and resource budget
 
@@ -10,7 +10,7 @@ Single-node VictoriaMetrics scrapes itself, VictoriaLogs, NGINX, the API server,
 
 VictoriaLogs stores logs from container stdout/stderr. A lightweight vlagent DaemonSet follows `/var/log/containers` symlinks into `/var/log/pods`, enriches records with pod metadata, and forwards them to VictoriaLogs. Its queue is capped at 1 GiB per destination, above the collector's minimum queue size. Host OS journals are outside the default collection scope. Both stores retain seven days by default, with configurable persistence and memory limits. There is no alerting subsystem or complete managed-service dashboard suite in the baseline.
 
-Platform requests total roughly 600 millicores and 1 GB of RAM on one node, in addition to K3s and system processes. Limits and requests are starting values; cardinality, log volume, and workload size matter. Start at 4 GB RAM, measure memory pressure and disk usage, and adjust `platform/values` before adopting larger workloads. The installation temporarily runs Helm hook jobs too.
+Platform requests total roughly 600 millicores and 1 GB of RAM on one node, in addition to K3s and system processes. Limits and requests are starting values; cardinality, log volume, and workload size matter. Start at 4 GB RAM, measure memory pressure and disk usage, and adjust sparse `helm_values` in your `values.yaml` before adopting larger workloads. The installation temporarily runs Helm hook jobs too.
 
 ## Single node and availability
 
@@ -22,9 +22,9 @@ With one node, node failure stops the whole platform. The local-path volumes for
 
 ## Multi-node networking and control plane
 
-Bootstrap accepts one server or an odd number of at least three servers. On a fresh multi-server cluster, the first server initializes embedded etcd; the others join through `api_endpoint`. Server nodes remain schedulable. Optional agents join after the servers. Inventory order preserves the first server for repeat runs. Adding agents does not change the datastore.
+AK3S accepts one SQLite server or an intended odd number of at least three etcd servers. On a fresh multi-server cluster, the first server initializes embedded etcd; additional servers join through `api_endpoint` with `node.join: true` and a private token file. Agents join using the same local CLI with `platform: false`. Server nodes remain schedulable. Adding agents does not change the datastore. See [configuration](configuration.md#additional-nodes) for per-node examples.
 
-Keep all nodes on a trusted Hetzner private network or an independently managed VPN. Set `ak3s_node_ip` to each node's private IPv4 address and `ak3s_flannel_iface` when interface detection would choose the wrong interface. Set `ak3s_node_external_ip` only when the node owns the corresponding reachable address. Configure the private network and firewall rules before bootstrap; AK3S does not create them.
+Keep nodes on a trusted Hetzner private network or independently managed VPN. Set `node.ip` to each node's private IPv4 and `node.flannel_iface` when automatic selection would choose the wrong interface. Set `node.external_ip` only when the node owns the reachable address. AK3S does not create networks/firewall rules or automate SSH inventory traversal. `server_count` describes intended topology and is not proof of live etcd quorum.
 
 | Port | Allowed source | Purpose |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ Keep all nodes on a trusted Hetzner private network or an independently managed 
 
 Do not expose VXLAN, kubelet, or etcd to the internet. Flannel VXLAN traffic is unencrypted; a private trusted network or encrypted external VPN supplies the transport trust. No NodePort range needs public access for the baseline. Host firewalls must also permit pod/service forwarding; cloud firewall rules alone do not configure a host firewall.
 
-For API availability across server failure, configure an external TCP load balancer or a managed virtual IP yourself and use its DNS name in `api_endpoint`. That endpoint must work from the workstation and every node and route TCP 6443 to healthy servers. Using the first server address is sufficient for initial setup but leaves registration and administrator access dependent on that server. Keep the datastore topology fixed when rerunning bootstrap; conversion from SQLite to etcd is an explicit migration.
+For API availability across server failure, configure an external TCP load balancer or a managed virtual IP yourself and use its DNS name in `api_endpoint`. That endpoint must work from the administration clients and every node and route TCP 6443 to healthy servers. Using the first server address is sufficient for initial setup but leaves registration and administrator access dependent on that server. Keep the datastore topology fixed when rerunning the CLI; conversion from SQLite to etcd is an explicit migration.
 
 Multi-server etcd protects the control-plane datastore, while the default one-replica ingress and single-node metrics/log stores retain their own availability limits. Change ingress replica count and spread replicas when availability requires it. Local-path persistence does not become replicated when more nodes are added. Select external or provider storage only when an application requires it.
 
