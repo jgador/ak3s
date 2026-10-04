@@ -1,14 +1,23 @@
-PYTHON ?= .venv/bin/python
-AK3S = $(PYTHON) scripts/ak3s.py
+GO ?= go
+VERSION ?= dev
+COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LDFLAGS = -s -w -X github.com/jgador/ak3s/internal/ak3s.Version=$(VERSION) -X github.com/jgador/ak3s/internal/ak3s.Commit=$(COMMIT)
 
-.PHONY: setup install validate bootstrap platform render status test
-setup:
-	python3 -m venv .venv
-	.venv/bin/pip install -r requirements.txt
-
-install validate bootstrap platform render status:
-	$(AK3S) $@
+.PHONY: build test verify release
+build:
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/ak3s ./cmd/ak3s
 
 test:
-	$(PYTHON) -m unittest discover -s tests -v
-	.venv/bin/ansible-playbook -i examples/inventory.yaml ansible/site.yaml --syntax-check
+	$(GO) test -race -cover ./...
+
+verify: test
+	$(GO) vet ./...
+	test -z "$$($(GO) fmt ./...)"
+	bash -n install.sh
+
+release:
+	mkdir -p dist
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/ak3s_linux_amd64 ./cmd/ak3s
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o dist/ak3s_linux_arm64 ./cmd/ak3s
+	cp install.sh dist/install.sh
+	cd dist && sha256sum ak3s_linux_amd64 ak3s_linux_arm64 install.sh > checksums.txt

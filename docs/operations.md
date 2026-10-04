@@ -2,30 +2,25 @@
 
 ## Management access
 
-Select the AK3S kubeconfig explicitly:
+The administrator kubeconfig is `/etc/rancher/k3s/k3s.yaml`, with mode 0600. K3s provides kubectl as a subcommand; no separate kubectl installation is needed on a server.
 
 ```bash
-export KUBECONFIG="$PWD/.ak3s/kubeconfig"
-kubectl -n headlamp create token headlamp-viewer --duration=1h
-kubectl -n headlamp port-forward service/headlamp 8080:80
+sudo k3s kubectl -n headlamp create token headlamp-viewer --duration=1h
+sudo k3s kubectl -n headlamp port-forward service/headlamp 8080:80
 ```
 
-Open `http://127.0.0.1:8080` and enter that token. The viewer account can inspect workloads and usage but cannot modify them or read Secrets. The administrator kubeconfig can create RBAC for individual users when write access is required. Tokens should stay out of files, terminal transcripts, and Git. The requested one-hour lifetime may be shortened by API server policy.
+Open `http://127.0.0.1:8080` on the VM, or forward that loopback port through SSH from your workstation. Enter the token. The viewer can inspect workloads and resource usage but cannot write or read Secrets. Tokens should stay out of files, transcripts and Git. Give named users explicit RBAC for management, or integrate an existing OIDC provider separately.
 
-For public Headlamp access, set `headlamp_hostname` in `cluster.yaml`, create the public DNS A record, and rerun `make platform`. Set `acme_environment: production` after validating staging issuance. Login still requires a Kubernetes token. Remove the hostname and rerun platform to remove the ingress.
-
-Access the metrics and logs UIs in separate terminals:
+Set `headlamp_hostname` in your overrides to opt into HTTPS ingress. Start with `acme_environment: staging`, validate issuance, then switch to `production` and `sudo ak3s apply`. Remove the hostname to remove the generated ingress. Authentication still requires a Kubernetes token.
 
 ```bash
-kubectl -n observability port-forward service/victoria-metrics 8428:8428
+sudo k3s kubectl -n observability port-forward service/victoria-metrics 8428:8428
 # http://127.0.0.1:8428/vmui/
-kubectl -n observability port-forward service/victoria-logs 9428:9428
+sudo k3s kubectl -n observability port-forward service/victoria-logs 9428:9428
 # http://127.0.0.1:9428/select/vmui/
 ```
 
-Metrics query examples: `up`, `container_memory_working_set_bytes`, and `rate(container_cpu_usage_seconds_total[5m])`. A LogsQL query such as `kubernetes.pod_namespace:demo` selects application container logs. There is no separate Grafana installation.
-
-To expose application metrics to built-in scraping, annotate its Service:
+Metrics queries include `up`, `container_memory_working_set_bytes` and `rate(container_cpu_usage_seconds_total[5m])`. LogsQL `kubernetes.pod_namespace:demo` selects application logs. No Grafana is installed. To opt a Service into application metrics scraping:
 
 ```yaml
 metadata:
@@ -36,44 +31,60 @@ metadata:
     prometheus.io/scheme: http
 ```
 
-The annotated port must match the metrics container port declared in the pod. Discovery filters to that port, including declared pod ports not present on the Service. Custom authentication or TLS for application metrics requires explicit scrape configuration in `platform/values/victoria-metrics.yaml`. Annotations on pods are not used by this baseline.
+The port must match the declared metrics container port. Discovery also includes declared pod ports not exposed by the Service. Pod annotations are not used. Custom TLS/authentication requires an explicit scrape override under `helm_values.victoria-metrics.server.scrape`.
+
+## Reconciliation and upgrades
+
+The CLI follows a fixed sequence: load/validate settings, inspect host and ownership, plan changes, download verified artifacts, render/validate charts, recheck the host under an exclusive lock, prepare prerequisites, checkpoint identity, write configuration, install the binary if needed, enable/start or restart K3s, wait for server readiness, then reconcile platform releases and shared resources.
+
+K3s uses a Go-generated systemd unit based on upstream service settings, including delegated cgroups, `KillMode=process`, restart policy and resource limits. No upstream installer shell script is executed. AK3S ensures CA certificates, iptables and kmod, loads overlay/br_netfilter and persists forwarding settings. It does not disable swap or reconfigure your firewall.
+
+Host configuration and the binary use atomic file replacement. The ownership marker is `/etc/rancher/k3s/ak3s-managed`; identity/checkpoint state is `/var/lib/ak3s/state.json`. Keep these with the host. A pending-restart checkpoint makes interrupted runs retry readiness rather than incorrectly treating written files as applied. The state records the last attempted release, not a guarantee of platform health. Never remove ownership/state to force a downgrade or topology conversion.
+
+Each release pins K3s, Helm, chart versions and SHA-256 checksums for Linux amd64 and arm64. Downloads are verified before use. Tools and charts use private temporary directories, with no persistent chart cache to migrate. Checksums protect artifact integrity under the trust of the release source; they are not a separate publisher signature.
+
+For an upgrade, back up first, install a specific newer **CLI** binary using the bootstrap, then run `sudo ak3s upgrade --dry-run` and `sudo ak3s upgrade`. No overrides are copied into the binary or overwritten by an upgrade. A K3s version change requires `upgrade`; a downgrade or skipped Kubernetes minor version is refused. Older numbered AK3S releases are also rejected once a newer release has been recorded, preventing accidental chart downgrades. Development builds are not ordered release versions. Review chart/image changes between AK3S releases too. `upgrade` applies that binary's pins; it does not fetch the latest AK3S release or modify itself.
+
+Servers must be upgraded sequentially before agents. Check quorum and node readiness after every node. Drain workloads deliberately if maintenance disruption is unacceptable; AK3S is not an unattended rolling-upgrade controller. Helm uses `--reset-values --atomic --wait --timeout 10m`, so persistent customization belongs in your `values.yaml`, not manual Helm arguments. A failure rolls back the failing release; prior releases, K3s changes and applied resources remain. Fix the failure and rerun. Reconciliation reapplies resources and can create Helm revisions even when desired values are unchanged.
+
+## Migrating an existing Ansible-managed AK3S node
+
+1. Keep backups of the old `cluster.yaml`, inventory, `.ak3s/bootstrap.yaml`, server data, token and application volumes. Preserve the original node name and datastore topology.
+2. Install the Go CLI binary. Create `/etc/ak3s/values.yaml` using your existing cluster settings plus `node.name`, `node.ip`, `node.external_ip` and `node.flannel_iface` from inventory. Use `node.datastore: etcd` and the original odd `node.server_count` for a multi-server cluster; set `node.join: true` on joining servers/agents.
+3. The original first server can retain its existing inline token automatically. On a joining node, securely copy that same token into an owner-only `node.token_file`; the CLI checks that it matches the old inline token. New installations let K3s create the first-server token automatically. Never generate a replacement token for an existing cluster.
+4. Review custom K3s service environment files and systemd/K3s drop-ins. Nonempty custom environment and drop-ins are blocked because they can override rendered settings. Migrate intentional settings explicitly before proceeding; do not delete them blindly.
+5. Run `sudo ak3s install --dry-run`. The CLI accepts the previous AK3S marker, preserves identity, and replaces the old service unit with its managed unit on apply. It refuses unmanaged K3s installations. If the existing K3s pin differs, use `upgrade` after backup instead.
+6. Apply on one node at a time and verify readiness, application routing and data. Once migrated, the old repository checkout and Python/Ansible virtual environment are no longer needed for operation. Keep historical backup material securely.
+
+Old SSH inventories and `platform --kubeconfig` are not CLI inputs. Execute the binary on the intended node rather than selecting an arbitrary workstation context. Never copy another node's ownership or state files.
 
 ## Verification and troubleshooting
 
 ```bash
-kubectl get nodes
-kubectl get pods -A
-kubectl top nodes
-kubectl -n ingress-nginx get service nginx-ingress-controller
-kubectl get clusterissuer
-kubectl -n demo describe certificate hello-tls
-kubectl -n demo get order,challenge
-kubectl -n observability logs statefulset/victoria-metrics --tail=50
-kubectl -n observability logs daemonset/victoria-logs-collector --tail=50
+sudo ak3s status
+sudo systemctl status k3s
+sudo journalctl -u k3s -n 100
+sudo k3s kubectl get nodes
+sudo k3s kubectl get pods -A
+sudo k3s kubectl top nodes
+sudo k3s kubectl -n ingress-nginx get service nginx-ingress-controller
+sudo k3s kubectl get clusterissuer
+sudo k3s kubectl -n demo describe certificate hello-tls
+sudo k3s kubectl -n demo get order,challenge
+sudo k3s kubectl -n observability logs statefulset/victoria-metrics --tail=50
+sudo k3s kubectl -n observability logs daemonset/victoria-logs-collector --tail=50
 ```
 
-A successful fresh install has no Traefik workload or HelmChart, a default `nginx` IngressClass, ready platform pods, and bound metrics/log PVCs. `up` should be 1 for the built-in metrics jobs. Test application routing before certificate issuance, then confirm the Certificate Ready condition and the certificate served for its hostname.
+Use `k3s-agent` for agent service/journal commands. Failed subprocess output is suppressed by the CLI because Helm and Kubernetes validation errors can echo Secrets. Diagnose services through systemd/journald and workloads through kubectl. Review private `ak3s render --output DIR` files when needed.
 
-Pending ServiceLB pods usually mean host ports 80/443 are occupied. Pending PVCs usually mean no usable storage class or disk. Certificate challenges require public DNS, inbound port 80, and successful reachability from both Let's Encrypt and cert-manager's self-check. Staging certificates are untrusted by design. Logs are collected from container stdout/stderr under `/var/log/pods`, not host journals. Metrics discovery uses Kubernetes endpoint resources; inspect VictoriaMetrics logs for TLS, permission, or scrape errors.
+A healthy install has no Traefik workload or HelmChart, a default `nginx` IngressClass, ready platform pods and bound metrics/log PVCs. The six built-in `up` metrics jobs should be 1. Test routing before certificate issuance, then confirm Certificate Ready and the served certificate.
 
-## Configuration, reconciliation, and upgrades
+Pending ServiceLB pods often indicate occupied 80/443 host ports. Pending PVCs may indicate missing storage classes or disk capacity. HTTP-01 needs public DNS, inbound port 80 and reachability from both Let's Encrypt and cert-manager; remove stale AAAA records. Logs collect container stdout/stderr under `/var/log/pods`, not OS journals. ClusterIP is not isolation from other pods; add network policies for tenant boundaries.
 
-`platform/versions.yaml` pins K3s, Helm versions, and chart archive SHA-256 checksums. Archives are downloaded directly, verified, and cached under `.ak3s/charts`; cached archives are reverified before use. The installer is fetched from the matching K3s tag, verified against its committed SHA-256, and uses K3s release checksum verification for the binary. Render chart changes with `make render`, inspect the results in `.ak3s/rendered`, and run `make test` and `tests/smoke.sh` before applying. Chart values are fully controlled by this repository: `helm upgrade --reset-values` removes old release overrides, so make persistent customization here.
+## Persistence, backup and recovery
 
-Host configuration changes require `make bootstrap`. Add agents to `inventory.yaml` and rerun bootstrap; the existing servers retain their configuration and version. Server configuration changes and upgrades restart affected services one at a time. Schedule maintenance, check quorum, and drain workload nodes deliberately before an upgrade when disruption is unacceptable. Bootstrap is not an unattended rolling-upgrade controller. Do not skip Kubernetes minor versions. Update the K3s installer checksum whenever its release pin changes.
+SQLite data is under `/var/lib/rancher/k3s/server/db`. Stop K3s for a consistent SQLite backup and include `/var/lib/rancher/k3s/server/token` plus configuration. For embedded etcd, use `sudo k3s etcd-snapshot save` and copy snapshots and the server token off-host. Follow the pinned K3s release's restore procedure and test recovery on a separate VM.
 
-Platform changes require `make platform`. Each Helm release uses `--atomic --wait`, with a ten-minute timeout. This rolls back a failing release; previously completed releases and applied resources remain. It is not a transaction for the entire platform. Fix the reported issue and rerun. Helm installs cert-manager CRDs but does not upgrade existing CRDs automatically; before changing cert-manager versions, apply the matching upstream CRDs as instructed by [cert-manager's upgrade documentation](https://cert-manager.io/docs/installation/upgrade/), then upgrade the chart. Back up certificate resources first.
+Local-path volumes, typically under `/var/lib/rancher/k3s/storage`, are node-local. They need separate application-consistent backups; etcd snapshots do not contain volume data. Retention and requested PVC size are not replacements for disk monitoring or backup. Back up the user overrides, K3s configuration, AK3S marker/state, token files and any custom RBAC.
 
-Keep `.ak3s/bootstrap.yaml`, `.ak3s/kubeconfig`, inventory, and cluster settings in an encrypted, access-controlled backup. The state directory and kubeconfig are mode 0700/0600 and ignored by Git. The bootstrap settings contain the cluster join token and datastore topology. Do not delete them to work around a topology guard. Retrieve the existing server token securely if local bootstrap settings are lost; generating a different token cannot join an existing cluster safely.
-
-Converting a single-server SQLite cluster to embedded etcd is a K3s datastore migration, not an inventory edit. Follow the upstream K3s procedure with a backup and maintenance window, update AK3S state only after the migration is confirmed, and keep the original first server first in inventory. AK3S blocks implicit conversion to prevent accidental split clusters. Removing nodes also requires deliberate drain, node deletion, and, for servers, etcd membership handling.
-
-## Persistence and recovery
-
-The default local-path provisioner stores data under `/var/lib/rancher/k3s/storage`. The two observability PVCs request 10 GiB each, but local-path does not enforce those sizes or reserve capacity. Logs retain seven days or at most 8 GiB; metrics retain seven days. Both ingestion services reserve at least 1 GiB free space. Tune retention and resource values to the real workload and monitor the node filesystem. Custom `storage_class` must exist before platform installation and support ReadWriteOnce PVCs.
-
-K3s datastore backups protect Kubernetes objects, not application data. For SQLite, take a consistent offline backup of `/var/lib/rancher/k3s/server/db`, the server token, configuration, and secret-encryption material during maintenance. For embedded etcd, use `k3s etcd-snapshot save` and copy the snapshots and server token off the cluster. Follow [K3s backup and restore guidance](https://docs.k3s.io/datastore/backup-restore) for the chosen datastore and retain required secret-encryption configuration.
-
-Back up application volumes independently. VictoriaMetrics supports [native snapshots and vmbackup](https://docs.victoriametrics.com/victoriametrics/vmbackup/); VictoriaLogs supports [backup and restore](https://docs.victoriametrics.com/victorialogs/#backup-and-restore). A simpler maintenance backup can stop ingestion and the stateful pods, then copy local data consistently off-node. Node-local volume data cannot recover from loss of the node disk without an external backup. Practice restore on disposable hosts; a successful snapshot command alone does not establish recoverability.
-
-Bootstrap does not remove nodes, uninstall K3s, or destroy infrastructure. For deliberate teardown, first back up data, remove applications and platform releases as needed, run the K3s uninstall script on the intended hosts, and finally delete the intended VMs in the Hetzner Cloud Console. Deleting a VM destroys its local application, metrics, and log data. Avoid deleting observability PVCs during upgrades. No backup operator or storage replication system is installed automatically.
+AK3S has no uninstall command or automatic restore/rollback of the whole platform. Do not use old uninstall scripts without reviewing their destructive behavior. Disabling platform management does not delete workloads or volumes.

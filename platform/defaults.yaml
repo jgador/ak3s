@@ -1,0 +1,25 @@
+cluster_name: ak3s
+api_endpoint: 127.0.0.1
+tls_sans: []
+# Required when platform is enabled. There is no safe default contact address.
+acme_email: ""
+acme_environment: staging
+storage_class: local-path
+metrics_retention: 7d
+metrics_storage: 10Gi
+logs_retention: 7d
+logs_storage: 10Gi
+logs_max_disk: 8GiB
+headlamp_hostname: ""
+platform: true
+node:
+  role: server
+  name: ""
+  ip: ""
+  external_ip: ""
+  flannel_iface: ""
+  datastore: sqlite
+  server_count: 1
+  join: false
+  token_file: ""
+helm_values: {}

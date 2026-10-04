@@ -1,0 +1,9 @@
+# Only your differences from `ak3s config --defaults` belong here.
+acme_email: operator@example.com
+api_endpoint: 192.0.2.10 # replace with your VM IPv4 or API DNS name
+# metrics_retention: 14d
+# headlamp_hostname: dashboard.example.com
+# helm_values:
+#   nginx-ingress:
+#     controller:
+#       replicaCount: 2

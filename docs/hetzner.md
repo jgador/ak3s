@@ -1,10 +1,10 @@
 # Existing Hetzner VM
 
-AK3S installs K3s and its platform components onto your existing Hetzner VM. Run installation inside the VM as root, or from a workstation over SSH. It does not create or delete Hetzner resources or require an API token.
+AK3S installs K3s and its platform components onto your existing Hetzner VM. Run installation inside the VM as root, using SSH from a workstation if desired. The CLI itself runs locally on the VM. It does not create or delete Hetzner resources or require an API token.
 
 ## Host requirements
 
-Use Ubuntu 24.04 or Debian 12+, systemd, x86_64 or arm64, and swap disabled. Start with at least 2 vCPUs, 4 GB RAM, and 40 GB SSD for the platform and small workloads. The inventory examples use the VM's public IPv4 address.
+Use Ubuntu 24.04 or Debian 12+, systemd, x86_64 or arm64, and swap disabled. Start with at least 2 vCPUs, 4 GB RAM, and 40 GB SSD for the platform and small workloads. The sparse settings example uses the VM's public IPv4 address.
 
 ## Firewall requirements
 
@@ -22,14 +22,12 @@ Headlamp, metrics, and logs use private ClusterIP services by default and need n
 
 ## Install AK3S
 
-Follow [the local installation steps](../README.md#installing-from-inside-the-hetzner-vm) using `examples/inventory-local.yaml` as root. The [workstation installation steps](../README.md#installing-from-a-workstation) use an SSH inventory instead.
-
-Set `ansible_host`, `ak3s_node_ip`, and `api_endpoint` to the VM's public IPv4 for this single-server setup. Set `acme_email` to your email address. Run `make install` after preparing the installation tools and configuration. This installs K3s, NGINX, cert-manager, Headlamp, VictoriaMetrics, VictoriaLogs, and the log collector.
+Follow the [CLI installation steps](../README.md#install). Download an explicit release, create `/etc/ak3s/values.yaml` with your `acme_email` and `api_endpoint`, then run `sudo ak3s install --dry-run` and `sudo ak3s install`. Set `node.ip` explicitly when automatic interface selection is unsuitable. No Hetzner API token or language runtime is needed.
 
 For HTTPS, point the application DNS A record at the VM's public IPv4 address. Remove stale AAAA records if IPv6 is not configured. Validate Let's Encrypt staging issuance before switching to production.
 
 ## Additional nodes
 
-Create any additional VMs and a Hetzner private network in the Cloud Console before adding them to the inventory. Set each node's `ak3s_node_ip` to its private IPv4 and configure `ak3s_flannel_iface` if needed. Keep `ansible_host` reachable from your installation machine and set `ak3s_node_external_ip` to the node's public IPv4 when appropriate.
+Create additional VMs and a Hetzner private network first. Run the CLI on each VM with the [per-node join settings](configuration.md#additional-nodes). Use `node.ip` for the private IPv4, `node.flannel_iface` when needed, and `node.external_ip` only for an address owned by that VM.
 
-Allow node-to-node traffic only on the private network using the [K3s port table](architecture.md#multi-node-networking-and-control-plane). The API endpoint must remain reachable from every node and your installation machine. Bootstrap accepts one server or an odd number of at least three servers, plus optional agents. Expanding a single-server SQLite cluster to multiple servers requires the explicit datastore migration described in [operations](operations.md#configuration-reconciliation-and-upgrades).
+Allow node-to-node traffic only on the private network using the [K3s port table](architecture.md#multi-node-networking-and-control-plane). The API endpoint must remain reachable from every node and your administration clients. Use one SQLite server or an odd number of at least three etcd servers, plus optional agents. Expanding a SQLite cluster into etcd requires an explicit migration; ordinary install/apply refuses the topology change.

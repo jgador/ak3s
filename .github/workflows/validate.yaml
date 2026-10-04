@@ -5,28 +5,16 @@ on:
 permissions:
   contents: read
 jobs:
-  configuration:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v6
         with:
-          python-version: '3.12'
-      - run: make setup test
-  platform:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+          go-version-file: go.mod
+      - run: make verify release
+      - run: go test -tags integration -run TestPinnedCharts -v ./internal/ak3s
+      - uses: actions/upload-artifact@v4
         with:
-          python-version: '3.12'
-      - uses: azure/setup-helm@v4.3.1
-        with:
-          version: v3.19.0
-      - uses: azure/setup-kubectl@v4
-        with:
-          version: v1.36.5
-      - run: make setup
-      - run: .venv/bin/python scripts/ak3s.py render --config examples/cluster.yaml
-      - run: tests/smoke.sh
+          name: ak3s-linux
+          path: dist/
