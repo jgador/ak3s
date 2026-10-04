@@ -1,0 +1,22 @@
+server:
+  fullnameOverride: victoria-logs
+  replicaCount: 1
+  retentionPeriod: 7d
+  retentionDiskSpaceUsage: 8GiB
+  persistentVolume:
+    enabled: true
+    storageClassName: local-path
+    size: 10Gi
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  extraArgs:
+    memory.allowedPercent: "60"
+    storage.minFreeDiskSpaceBytes: 1GiB
+vector:
+  enabled: false

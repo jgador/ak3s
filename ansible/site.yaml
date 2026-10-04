@@ -1,0 +1,153 @@
+- name: Prepare Linux hosts
+  hosts: k3s_servers:k3s_agents
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Check supported host configuration
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == 'Debian'
+          - >-
+            (ansible_facts.distribution == 'Ubuntu' and ansible_facts.distribution_version is version('24.04', '>=')) or
+            (ansible_facts.distribution == 'Debian' and ansible_facts.distribution_major_version | int >= 12)
+          - ansible_facts.service_mgr == 'systemd'
+          - ansible_facts.architecture in ['x86_64', 'aarch64']
+          - ansible_facts.swaptotal_mb == 0
+        fail_msg: Use Debian 12+ or Ubuntu 24.04+, systemd, x86_64/arm64, with swap disabled.
+
+    - name: Install K3s prerequisites
+      ansible.builtin.apt:
+        name: [curl, ca-certificates, iptables]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Persist kernel modules
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/ak3s.conf
+        content: "overlay\nbr_netfilter\n"
+        mode: '0644'
+
+    - name: Load kernel modules
+      ansible.builtin.command: "modprobe {{ item }}"
+      loop: [overlay, br_netfilter]
+      changed_when: false
+
+    - name: Persist forwarding settings
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/90-ak3s.conf
+        content: |
+          net.ipv4.ip_forward = 1
+          net.bridge.bridge-nf-call-iptables = 1
+        mode: '0644'
+      register: ak3s_sysctl
+
+    - name: Apply forwarding settings
+      ansible.builtin.command: sysctl -p /etc/sysctl.d/90-ak3s.conf
+      when: ak3s_sysctl.changed
+      changed_when: true
+
+    - name: Create K3s configuration directory
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: '0700'
+
+    - name: Check existing K3s ownership
+      ansible.builtin.stat:
+        path: '{{ item }}'
+      loop: [/usr/local/bin/k3s, /etc/rancher/k3s/ak3s-managed, /etc/rancher/k3s/config.yaml]
+      register: ak3s_existing
+
+    - name: Require a fresh or AK3S-managed installation
+      ansible.builtin.assert:
+        that:
+          - (not ak3s_existing.results[0].stat.exists and not ak3s_existing.results[2].stat.exists) or ak3s_existing.results[1].stat.exists
+        fail_msg: Existing K3s is not managed by AK3S. Use fresh hosts rather than overwriting its configuration.
+
+    - name: Read existing AK3S configuration before changing the join token
+      ansible.builtin.slurp:
+        src: /etc/rancher/k3s/config.yaml
+      when: ak3s_existing.results[1].stat.exists
+      register: ak3s_previous_config
+      no_log: true
+
+    - name: Preserve the existing cluster token
+      ansible.builtin.assert:
+        that:
+          - (ak3s_previous_config.content | b64decode | from_yaml).token == ak3s_join_token
+        fail_msg: Restore the original AK3S bootstrap settings before configuring existing nodes.
+      when: ak3s_existing.results[1].stat.exists
+      no_log: true
+
+    - name: Download pinned and verified K3s installer
+      ansible.builtin.get_url:
+        url: 'https://raw.githubusercontent.com/k3s-io/k3s/{{ ak3s_k3s_version }}/install.sh'
+        dest: /usr/local/lib/ak3s-install.sh
+        checksum: 'sha256:{{ ak3s_installer_sha256 }}'
+        mode: '0700'
+
+- name: Configure K3s servers one at a time
+  hosts: k3s_servers
+  serial: 1
+  become: true
+  gather_facts: false
+  vars:
+    ak3s_mode: server
+  tasks:
+    - name: Install and configure server
+      ansible.builtin.include_tasks: tasks/install.yaml
+
+    - name: Wait for server to become Ready
+      ansible.builtin.command:
+        argv: [k3s, kubectl, wait, '--for=condition=Ready', 'node/{{ inventory_hostname }}', '--timeout=180s']
+      register: ak3s_ready
+      retries: 10
+      delay: 10
+      until: ak3s_ready.rc == 0
+      changed_when: false
+  handlers:
+    - name: Restart K3s
+      ansible.builtin.systemd_service:
+        name: k3s
+        state: restarted
+        daemon_reload: true
+
+- name: Configure K3s agents one at a time
+  hosts: k3s_agents
+  serial: 1
+  become: true
+  gather_facts: false
+  vars:
+    ak3s_mode: agent
+  tasks:
+    - name: Install and configure agent
+      ansible.builtin.include_tasks: tasks/install.yaml
+  handlers:
+    - name: Restart K3s
+      ansible.builtin.systemd_service:
+        name: k3s-agent
+        state: restarted
+        daemon_reload: true
+
+- name: Retrieve administrator kubeconfig
+  hosts: k3s_servers[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for all cluster nodes
+      ansible.builtin.command:
+        argv: [k3s, kubectl, wait, '--for=condition=Ready', 'node/{{ item }}', '--timeout=180s']
+      loop: "{{ groups['k3s_servers'] + groups.get('k3s_agents', []) }}"
+      register: ak3s_all_ready
+      retries: 10
+      delay: 10
+      until: ak3s_all_ready.rc == 0
+      changed_when: false
+
+    - name: Fetch kubeconfig to the private local state directory
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: '{{ ak3s_state_dir }}/kubeconfig.raw'
+        flat: true
+      no_log: true

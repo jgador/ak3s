@@ -1,0 +1,23 @@
+# Managed by AK3S. The join token is intentionally readable only by root.
+node-name: {{ inventory_hostname | to_json }}
+node-ip: {{ ak3s_node_ip | default(ansible_host) | to_json }}
+token: {{ ak3s_join_token | to_json }}
+{% if ak3s_node_external_ip is defined %}
+node-external-ip: {{ ak3s_node_external_ip | to_json }}
+{% endif %}
+{% if ak3s_flannel_iface is defined %}
+flannel-iface: {{ ak3s_flannel_iface | to_json }}
+{% endif %}
+{% if ak3s_mode == 'server' %}
+disable:
+  - traefik
+write-kubeconfig-mode: "0600"
+secrets-encryption: true
+tls-san: {{ ([ak3s_api_endpoint] + ak3s_tls_sans) | unique | list | to_json }}
+{% if groups['k3s_servers'] | length > 1 and inventory_hostname == groups['k3s_servers'][0] %}
+cluster-init: true
+{% endif %}
+{% endif %}
+{% if ak3s_mode == 'agent' or inventory_hostname != groups['k3s_servers'][0] %}
+server: {{ ('https://' ~ ak3s_api_endpoint ~ ':6443') | to_json }}
+{% endif %}

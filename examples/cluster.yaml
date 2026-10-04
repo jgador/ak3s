@@ -1,0 +1,18 @@
+cluster_name: ak3s
+# Must reach the first server (or an existing API TCP load balancer) from
+# your workstation AND all other nodes. Included in the API TLS SANs.
+api_endpoint: 192.0.2.10
+tls_sans: []
+acme_email: operator@example.com
+# ACME staging avoids production rate limits during initial setup.
+# Set to production after the example certificate succeeds.
+acme_environment: staging
+storage_class: local-path
+metrics_retention: 7d
+metrics_storage: 10Gi
+logs_retention: 7d
+logs_storage: 10Gi
+# local-path volumes do not enforce PVC size; this caps logs independently.
+logs_max_disk: 8GiB
+# Optional public, authenticated Headlamp UI. Blank means port-forward only.
+headlamp_hostname: ""

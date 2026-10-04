@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.ak3s/
+inventory.yaml
+cluster.yaml
+!examples/inventory.yaml
+!examples/cluster.yaml

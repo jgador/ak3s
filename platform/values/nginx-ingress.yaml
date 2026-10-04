@@ -1,0 +1,26 @@
+controller:
+  kind: deployment
+  replicaCount: 1
+  nginxplus: false
+  enableCustomResources: false
+  enableSnippets: false
+  ingressClass:
+    name: nginx
+    create: true
+    setAsDefaultIngress: true
+  service:
+    type: LoadBalancer
+    # ServiceLB can receive traffic on any node, even with a single controller.
+    externalTrafficPolicy: Cluster
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+prometheus:
+  create: true
+  service:
+    create: true
+  serviceMonitor:
+    create: false

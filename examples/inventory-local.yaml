@@ -1,0 +1,14 @@
+# Install directly on a fresh Hetzner Cloud VM as root.
+# Replace both documentation addresses with the VM's public IPv4.
+all:
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: /usr/bin/python3
+  children:
+    k3s_servers:
+      hosts:
+        server-1:
+          ansible_host: 192.0.2.10
+          ak3s_node_ip: 192.0.2.10
+    k3s_agents:
+      hosts: {}
