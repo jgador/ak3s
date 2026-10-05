@@ -85,7 +85,9 @@ make release  # Linux amd64/arm64 binaries and checksums in dist/
 
 See [testing and releases](docs/testing.md). Licensed under [MIT](LICENSE).
 
-Codex hooks in `.codex/hooks.json` run `gofmt` on changed Go files after edits and shell commands. Review and trust them with `/hooks` in Codex.
+Codex hooks in `.codex/hooks.json` run `gofmt` on changed Go files after edits and shell commands. The `Stop` hook requests one final language review using its [language policy](.codex/hooks/language-policy.md), then allows the turn to finish. It requires Python 3 and asks Codex to review wording in context rather than replacing technical terms automatically.
+
+Review and trust new or changed hooks with `/hooks` in Codex. [Codex skips them until their current definitions are trusted](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
 
 ### Coding agent temporary files
 

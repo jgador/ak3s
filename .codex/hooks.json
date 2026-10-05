@@ -1,5 +1,5 @@
 {
-  "description": "Format changed Go files after Codex edits or shell commands.",
+  "description": "Format changed Go files and review language before Codex finishes a turn.",
   "hooks": {
     "PostToolUse": [
       {
@@ -10,6 +10,18 @@
             "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/format-go.sh\"",
             "timeout": 30,
             "statusMessage": "Formatting Go files"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/review-language.py\"",
+            "timeout": 10,
+            "statusMessage": "Reviewing language and terminology"
           }
         ]
       }
