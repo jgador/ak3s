@@ -20,9 +20,13 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// Version is the AK3S release label, set by the build's linker flags.
 var Version = "dev"
+
+// Commit is the source revision, set by the build's linker flags.
 var Commit = "unknown"
 
+// Pins identifies the exact binaries and ordered Helm charts shipped in a release.
 type Pins struct {
 	K3s        string            `yaml:"k3s"`
 	K3sSHA256  map[string]string `yaml:"k3s_sha256"`
@@ -30,6 +34,8 @@ type Pins struct {
 	HelmSHA256 map[string]string `yaml:"helm_sha256"`
 	Charts     []Chart           `yaml:"charts"`
 }
+
+// Chart describes a pinned chart archive, its release destination, and default values.
 type Chart struct {
 	Release    string `yaml:"release"`
 	Namespace  string `yaml:"namespace"`
@@ -42,6 +48,7 @@ type Chart struct {
 	SkipCRDs   bool   `yaml:"skip_crds"`
 }
 
+// LoadPins reads and validates embedded versions and artifact checksums.
 func LoadPins() (Pins, error) {
 	var p Pins
 	data, err := platform.Files.ReadFile("versions.yaml")
@@ -79,6 +86,8 @@ func validSHA(s string) bool {
 	b, err := hex.DecodeString(s)
 	return err == nil && len(b) == sha256.Size
 }
+
+// Verify requires data to match a valid, pinned SHA-256 checksum.
 func Verify(data []byte, expected string) error {
 	if !validSHA(expected) {
 		return errors.New("invalid SHA-256 pin")
@@ -89,6 +98,8 @@ func Verify(data []byte, expected string) error {
 	}
 	return nil
 }
+
+// ParseK3sVersion returns the major, minor, patch, and K3s revision numbers.
 func ParseK3sVersion(s string) ([4]int, error) {
 	var result [4]int
 	m := regexp.MustCompile(`^v([0-9]+)\.([0-9]+)\.([0-9]+)\+k3s([0-9]+)$`).FindStringSubmatch(s)
@@ -104,6 +115,9 @@ func ParseK3sVersion(s string) ([4]int, error) {
 	}
 	return result, nil
 }
+
+// CheckUpgrade allows fresh installs and unchanged versions, but rejects downgrades.
+// Version increases require allow and cannot skip a Kubernetes minor version.
 func CheckUpgrade(current, target string, allow bool) error {
 	if current == "" || current == target {
 		return nil
@@ -133,11 +147,15 @@ func CheckUpgrade(current, target string, allow bool) error {
 	return nil
 }
 
+// Downloader retrieves an artifact and verifies it against the supplied checksum.
 type Downloader interface {
 	Get(context.Context, string, string) ([]byte, error)
 }
+
+// HTTPDownloader uses the supplied client, or a default client with a download timeout.
 type HTTPDownloader struct{ Client *http.Client }
 
+// Get requires HTTPS, bounds the response size, and verifies bytes before returning them.
 func (h HTTPDownloader) Get(ctx context.Context, url, sum string) ([]byte, error) {
 	if !strings.HasPrefix(url, "https://") {
 		return nil, errors.New("downloads require HTTPS")
@@ -187,6 +205,8 @@ func (h HTTPDownloader) Get(ctx context.Context, url, sum string) ([]byte, error
 	}
 	return data, nil
 }
+
+// helmBinary reads only the expected executable entry without extracting archive paths.
 func helmBinary(archive []byte, arch string) ([]byte, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
@@ -211,6 +231,8 @@ func helmBinary(archive []byte, arch string) ([]byte, error) {
 		return io.ReadAll(io.LimitReader(tr, header.Size))
 	}
 }
+
+// K3sURL selects the upstream release asset for the requested architecture.
 func (p Pins) K3sURL(arch string) string {
 	name := "k3s"
 	if arch == "arm64" {

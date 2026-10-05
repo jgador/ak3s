@@ -10,6 +10,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// K3sConfig renders settings for this node, preserving an existing inline token if needed.
 func K3sConfig(c Config, legacyToken string) ([]byte, error) {
 	n := c.Node
 	v := map[string]any{}
@@ -38,6 +39,7 @@ func K3sConfig(c Config, legacyToken string) ([]byte, error) {
 			}
 		}
 		v["tls-san"] = sans
+		// Only the first etcd server initializes the datastore; other servers join it.
 		if n.Datastore == "etcd" && !n.Join {
 			v["cluster-init"] = true
 		}
@@ -47,6 +49,8 @@ func K3sConfig(c Config, legacyToken string) ([]byte, error) {
 	}
 	return yaml.Marshal(v)
 }
+
+// ValuesFor merges chart defaults, generated AK3S settings, then operator overrides.
 func ValuesFor(chart Chart, c Config) ([]byte, error) {
 	raw, err := platform.Files.ReadFile("values/" + chart.Values)
 	if err != nil {
@@ -78,6 +82,8 @@ func ValuesFor(chart Chart, c Config) ([]byte, error) {
 	}
 	return yaml.Marshal(Merge(Merge(base, generated), c.HelmValues[chart.Release]))
 }
+
+// Issuers creates staging and production Let's Encrypt issuers using NGINX HTTP-01.
 func Issuers(c Config) ([]byte, error) {
 	var out bytes.Buffer
 	e := yaml.NewEncoder(&out)
@@ -94,6 +100,8 @@ func Issuers(c Config) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
+
+// ValidateManifests checks basic Kubernetes document fields, not API schema validity.
 func ValidateManifests(data []byte) error {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	count := 0
@@ -119,6 +127,8 @@ func ValidateManifests(data []byte) error {
 	}
 	return nil
 }
+
+// serviceUnit runs K3s directly with the managed config and role-specific startup signaling.
 func serviceUnit(role string) []byte {
 	serviceType := "notify"
 	if role == "agent" {

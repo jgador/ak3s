@@ -1,3 +1,4 @@
+// Package ak3s implements local K3s installation and platform reconciliation.
 package ak3s
 
 import (
@@ -15,6 +16,8 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// App connects CLI commands to host inspection, artifact preparation, and execution.
+// These dependencies can be replaced in tests without modifying a real host.
 type App struct {
 	Host     Host
 	Preparer Preparer
@@ -23,6 +26,7 @@ type App struct {
 	Out, Err io.Writer
 }
 
+// NewApp constructs the CLI with real host operations and the supplied output streams.
 func NewApp(out, err io.Writer) *App {
 	return &App{Host: NewNativeHost(), Preparer: NativePreparer{Downloads: HTTPDownloader{}, Runner: ExecRunner{}}, Runner: ExecRunner{}, ReadFile: os.ReadFile, Out: out, Err: err}
 }
@@ -47,6 +51,7 @@ Options (after command):
 No cluster is selected from KUBECONFIG or the current kubectl context.
 `
 
+// Run handles arguments after the executable name and returns command failures.
 func (a *App) Run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		_, err := io.WriteString(a.Out, usage)
@@ -103,6 +108,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		_, err = a.Out.Write(data)
 		return err
 	}
+	// The default file is optional; an explicitly selected file must exist.
 	explicit := path != ""
 	if !explicit {
 		path = "/etc/ak3s/values.yaml"
@@ -123,6 +129,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		_, err = a.Out.Write(data)
 		return err
 	}
+	// Rendering needs validated artifacts but does not inspect or change the host.
 	if command == "render" {
 		if err = c.ValidateInstall(); err != nil {
 			return err
@@ -213,6 +220,8 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	fmt.Fprintln(a.Out, "AK3S reconciled. Run ak3s status.")
 	return nil
 }
+
+// status reports local service state and, on servers, queries the managed cluster.
 func (a *App) status(ctx context.Context, c Config, p Pins, s Snapshot) error {
 	fmt.Fprintf(a.Out, "AK3S-managed: %t\nK3s: %s (desired %s)\nService active: %t\n", s.Managed, s.K3sVersion, p.K3s, s.ServiceActive)
 	if s.State != nil {

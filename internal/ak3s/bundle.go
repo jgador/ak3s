@@ -11,6 +11,7 @@ import (
 	"github.com/jgador/ak3s/platform"
 )
 
+// Bundle owns verified artifacts and rendered resources in a disposable directory.
 type Bundle struct {
 	Dir, Helm                           string
 	K3s                                 []byte
@@ -18,31 +19,44 @@ type Bundle struct {
 	Releases                            map[string]string
 }
 
+// Close removes temporary artifacts; callers should defer it after preparation succeeds.
 func (b *Bundle) Close() {
 	if b != nil && b.Dir != "" {
 		os.RemoveAll(b.Dir)
 	}
 }
+
+// HelmEnv isolates Helm caches and plugins and selects the local K3s kubeconfig.
 func (b *Bundle) HelmEnv() []string {
 	return []string{"HOME=" + b.Dir, "HELM_CACHE_HOME=" + filepath.Join(b.Dir, "cache"), "HELM_CONFIG_HOME=" + filepath.Join(b.Dir, "config"), "HELM_DATA_HOME=" + filepath.Join(b.Dir, "data"), "HELM_PLUGINS=" + filepath.Join(b.Dir, "plugins"), "KUBECONFIG=" + KubeconfigPath}
 }
-func (b *Bundle) ChartPath(c Chart) string  { return filepath.Join(b.Dir, c.Release+".tgz") }
+
+// ChartPath locates a verified chart archive within the bundle.
+func (b *Bundle) ChartPath(c Chart) string { return filepath.Join(b.Dir, c.Release+".tgz") }
+
+// ValuesPath locates the merged Helm values for a release.
 func (b *Bundle) ValuesPath(c Chart) string { return filepath.Join(b.Dir, c.Release+"-values.yaml") }
 
+// Preparer downloads and validates the artifacts required by a plan before host changes.
 type Preparer interface {
 	Prepare(context.Context, Plan) (*Bundle, error)
 }
+
+// NativePreparer combines verified downloads with Helm rendering and validation.
 type NativePreparer struct {
 	Downloads Downloader
 	Runner    Runner
 }
 
+// Prepare stages artifacts privately and cleans up on failure.
+// Installed releases also receive Helm server validation without persistent changes.
 func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, err error) {
 	dir, err := os.MkdirTemp("", "ak3s-")
 	if err != nil {
 		return nil, err
 	}
 	b := &Bundle{Dir: dir, Values: map[string][]byte{}, Charts: map[string][]byte{}, Rendered: map[string][]byte{}, Manifests: map[string][]byte{}, Releases: map[string]string{}}
+	// The named error return lets this cleanup cover every preparation failure.
 	defer func() {
 		if err != nil {
 			b.Close()
@@ -91,6 +105,7 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 			b.Releases[r.Namespace+"/"+r.Name] = r.Chart + " (" + r.Status + ")"
 		}
 	}
+	// Render the pinned charts locally before installation can change the cluster.
 	for _, chart := range p.Pins.Charts {
 		values, err := ValuesFor(chart, p.Config)
 		if err != nil {
@@ -154,6 +169,8 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 	}
 	return b, nil
 }
+
+// helmUpgradeArgs makes supplied values authoritative and enables per-release rollback.
 func helmUpgradeArgs(chart Chart, b *Bundle) []string {
 	args := []string{"upgrade", "--install", chart.Release, b.ChartPath(chart), "--namespace", chart.Namespace, "--create-namespace", "--kubeconfig", KubeconfigPath, "--values", b.ValuesPath(chart), "--reset-values", "--atomic", "--wait", "--timeout", "10m"}
 	if chart.SkipCRDs {
@@ -161,6 +178,8 @@ func helmUpgradeArgs(chart Chart, b *Bundle) []string {
 	}
 	return args
 }
+
+// Export writes configuration and rendered resources with owner-only permissions.
 func (b *Bundle) Export(dir string, k3s []byte) error {
 	if err := AtomicWrite(filepath.Join(dir, "k3s-config.yaml"), k3s, 0600); err != nil {
 		return err

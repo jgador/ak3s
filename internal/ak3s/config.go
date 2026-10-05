@@ -14,6 +14,8 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// Config holds operator settings after overrides have been merged with defaults.
+// YAML tags define the names accepted in values.yaml.
 type Config struct {
 	ClusterName      string                    `yaml:"cluster_name"`
 	APIEndpoint      string                    `yaml:"api_endpoint"`
@@ -31,6 +33,9 @@ type Config struct {
 	Node             NodeConfig                `yaml:"node"`
 	HelmValues       map[string]map[string]any `yaml:"helm_values"`
 }
+
+// NodeConfig describes this node's identity, networking, and cluster membership.
+// JSON tags also persist these settings in the installation checkpoint.
 type NodeConfig struct {
 	Role         string `yaml:"role" json:"role"`
 	Name         string `yaml:"name" json:"name"`
@@ -75,6 +80,8 @@ func clone(v any) any {
 		return v
 	}
 }
+
+// mapping accepts one YAML mapping; empty input means there are no overrides.
 func mapping(data []byte) (map[string]any, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return map[string]any{}, nil
@@ -100,6 +107,8 @@ func mapping(data []byte) (map[string]any, error) {
 	}
 	return result, nil
 }
+
+// checkYAML rejects ambiguous keys, aliases, and nulls before converting to maps.
 func checkYAML(n *yaml.Node) error {
 	if n.Kind == yaml.AliasNode || n.Tag == "!!null" {
 		return errors.New("YAML aliases and null values are not supported; omit keys to inherit defaults")
@@ -121,6 +130,8 @@ func checkYAML(n *yaml.Node) error {
 	}
 	return nil
 }
+
+// LoadConfig merges sparse YAML overrides with embedded defaults and validates them.
 func LoadConfig(overrides []byte) (Config, error) {
 	var c Config
 	defaults, err := platform.Files.ReadFile("defaults.yaml")
@@ -140,6 +151,7 @@ func LoadConfig(overrides []byte) (Config, error) {
 		return c, err
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
+	// Decode into the typed settings so misspelled AK3S keys are errors.
 	dec.KnownFields(true)
 	if err := dec.Decode(&c); err != nil {
 		return c, err
@@ -166,6 +178,9 @@ func endpoint(s string) bool {
 	}
 	return hostname(s) && !regexp.MustCompile(`^[0-9.]+$`).MatchString(s)
 }
+
+// Validate checks setting formats, supported topology, and chart override names.
+// Host prerequisites and installation-only requirements are checked separately.
 func (c Config) Validate() error {
 	if !labelRE.MatchString(c.ClusterName) {
 		return errors.New("cluster_name must be a DNS label")
@@ -236,6 +251,7 @@ func (c Config) Validate() error {
 	if n.TokenFile != "" && (!filepath.IsAbs(n.TokenFile) || strings.ContainsAny(n.TokenFile, "\n\r\x00")) {
 		return errors.New("node.token_file must be an absolute path")
 	}
+	// Reconciliation must never overwrite the file that supplies the join token.
 	for _, path := range []string{ConfigPath, MarkerPath, StatePath, KubeconfigPath, K3sPath, ModulesPath, SysctlPath, unitPath("server"), unitPath("agent")} {
 		if n.TokenFile != "" && filepath.Clean(n.TokenFile) == path {
 			return errors.New("node.token_file must not overlap an AK3S-managed file")
@@ -256,6 +272,8 @@ func (c Config) Validate() error {
 	}
 	return nil
 }
+
+// ValidateInstall requires the ACME contact only when platform services are managed.
 func (c Config) ValidateInstall() error {
 	if c.Platform && c.ACMEEmail == "" {
 		return errors.New("set acme_email in values.yaml before installing the platform")

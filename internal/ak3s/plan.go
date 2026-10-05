@@ -12,6 +12,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// Fixed paths keep operations scoped to the local AK3S-managed installation.
 const (
 	K3sPath        = "/usr/local/bin/k3s"
 	ConfigPath     = "/etc/rancher/k3s/config.yaml"
@@ -22,7 +23,10 @@ const (
 	SysctlPath     = "/etc/sysctl.d/90-ak3s.conf"
 )
 
+// State checkpoints the last attempted release and node identity across runs.
+// It is not a guarantee that every platform service is healthy.
 type State struct {
+	// PendingRestart stays set until service readiness has been confirmed.
 	PendingRestart bool       `json:"pending_restart"`
 	Schema         int        `json:"schema"`
 	AK3SVersion    string     `json:"ak3s_version"`
@@ -32,6 +36,8 @@ type State struct {
 	// A hash of the join credential detects edits to a token file without exposing it.
 	TokenSHA256 string `json:"token_sha256,omitempty"`
 }
+
+// Snapshot contains observed host state used to validate and compare planned changes.
 type Snapshot struct {
 	OS, Arch, Distribution, DistributionVersion, Hostname             string
 	Root, Systemd, Swap, Existing, Managed, ServiceActive, Kubeconfig bool
@@ -40,7 +46,11 @@ type Snapshot struct {
 	State                                                             *State
 	Problems                                                          []string
 }
+
+// Action describes a proposed operation for CLI output, without executing it.
 type Action struct{ Kind, Target, Detail string }
+
+// Plan holds desired files, required operations, and any blockers found during planning.
 type Plan struct {
 	Config                 Config
 	Pins                   Pins
@@ -60,6 +70,8 @@ func serviceName(role string) string {
 	return "k3s"
 }
 
+// BuildPlan compares desired settings with a snapshot without performing host writes.
+// It rejects unsafe ownership, identity, token, and version transitions.
 func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 	if c.Node.Name == "" {
 		c.Node.Name = strings.ToLower(s.Hostname)
@@ -110,6 +122,7 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 			return p, errors.New("join token changed; restore the original token file before continuing")
 		}
 	}
+	// Older installations lack a checkpoint, so preserve identity from their K3s YAML.
 	var legacyToken string
 	if previous := s.Files[ConfigPath]; len(previous) > 0 {
 		var old map[string]any
@@ -179,6 +192,7 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 			}
 		}
 	}
+	// Retry an interrupted restart even when the desired files are already on disk.
 	p.Restart = p.Restart || p.InstallBinary || (s.State != nil && s.State.PendingRestart)
 	p.Actions = append(p.Actions, Action{"record", "AK3S ownership and state", MarkerPath + "; " + StatePath})
 	p.Actions = append(p.Actions, Action{"reconcile", "host prerequisites", "ensure iptables, CA certificates, kernel modules and forwarding"})
@@ -203,10 +217,14 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 	}
 	return p, nil
 }
+
+// StateJSON encodes the checkpoint that reconciliation writes before starting K3s.
 func (p Plan) StateJSON() []byte {
 	data, _ := json.MarshalIndent(p.State, "", "  ")
 	return append(data, '\n')
 }
+
+// Check returns all host blockers as one error before a plan is applied.
 func (p Plan) Check() error {
 	if len(p.Problems) > 0 {
 		return errors.New(strings.Join(p.Problems, "; "))

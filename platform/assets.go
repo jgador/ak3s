@@ -3,5 +3,7 @@ package platform
 
 import "embed"
 
+// Files makes release defaults, version pins, and templates available without a checkout.
+//
 //go:embed defaults.yaml versions.yaml values/*.yaml manifests/*.yaml
 var Files embed.FS

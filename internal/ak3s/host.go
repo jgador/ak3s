@@ -19,17 +19,23 @@ import (
 	"time"
 )
 
+// Command describes a child process, including optional stdin and environment overrides.
 type Command struct {
 	Name  string
 	Args  []string
 	Input []byte
 	Env   []string
 }
+
+// Runner abstracts process execution so tests can record commands without running them.
 type Runner interface {
 	Run(context.Context, Command) ([]byte, error)
 }
+
+// ExecRunner runs real processes with bounded timeouts and a controlled environment.
 type ExecRunner struct{}
 
+// Run captures successful output and suppresses failed output that may contain secrets.
 func (ExecRunner) Run(ctx context.Context, c Command) ([]byte, error) {
 	timeout := 15 * time.Minute
 	if filepath.Base(c.Name) == "systemctl" {
@@ -53,6 +59,8 @@ func firstArg(args []string) string {
 	}
 	return ""
 }
+
+// cleanEnv builds a predictable child environment with permitted network settings.
 func cleanEnv(extra []string) []string {
 	result := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "LANG=C.UTF-8"}
 	// Proxy settings are needed for restricted outbound installations. Do not inherit
@@ -65,27 +73,36 @@ func cleanEnv(extra []string) []string {
 	return append(result, extra...)
 }
 
+// Reader abstracts the filesystem reads used during host inspection.
 type Reader interface {
 	ReadFile(string) ([]byte, error)
 	Stat(string) (fs.FileInfo, error)
 	ReadDir(string) ([]fs.DirEntry, error)
 }
+
+// OSReader implements Reader using the local filesystem.
 type OSReader struct{}
 
 func (OSReader) ReadFile(p string) ([]byte, error)       { return os.ReadFile(p) }
 func (OSReader) Stat(p string) (fs.FileInfo, error)      { return os.Stat(p) }
 func (OSReader) ReadDir(p string) ([]fs.DirEntry, error) { return os.ReadDir(p) }
 
+// Host separates read-only inspection from applying a validated plan.
 type Host interface {
 	Inspect(context.Context, Config) (Snapshot, error)
 	Apply(context.Context, Plan, *Bundle) error
 }
+
+// NativeHost manages the local machine through filesystem and process dependencies.
 type NativeHost struct {
 	Reader Reader
 	Runner Runner
 }
 
+// NewNativeHost uses real filesystem reads and child processes.
 func NewNativeHost() *NativeHost { return &NativeHost{Reader: OSReader{}, Runner: ExecRunner{}} }
+
+// Inspect collects runtime identity and the local installation's current state.
 func (h *NativeHost) Inspect(ctx context.Context, c Config) (Snapshot, error) {
 	name, err := os.Hostname()
 	if err != nil {
@@ -93,6 +110,9 @@ func (h *NativeHost) Inspect(ctx context.Context, c Config) (Snapshot, error) {
 	}
 	return Inspect(ctx, h.Reader, h.Runner, c, Snapshot{OS: runtime.GOOS, Arch: runtime.GOARCH, Root: os.Geteuid() == 0, Hostname: name})
 }
+
+// Inspect reads ownership, configuration, credentials, and host prerequisites.
+// It records blockers in the snapshot without changing host files or services.
 func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot) (Snapshot, error) {
 	s.Files = map[string][]byte{}
 	exists := func(p string) (bool, error) {
@@ -217,6 +237,7 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 		if info.Mode().Perm()&0077 != 0 {
 			return s, errors.New("node.token_file must be readable only by its owner (0600)")
 		}
+		// Persist only a fingerprint so later runs can detect token changes.
 		sum := sha256.Sum256(bytes.TrimSpace(data))
 		s.TokenSHA256 = hex.EncodeToString(sum[:])
 	}

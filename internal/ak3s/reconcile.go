@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// lock prevents concurrent local applies and returns a function that releases the lock.
 func lock(dir string) (func(), error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
@@ -25,6 +26,8 @@ func lock(dir string) (func(), error) {
 	}
 	return func() { syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }, nil
 }
+
+// Apply locks the host, revalidates its snapshot, then executes the prepared plan.
 func (h *NativeHost) Apply(ctx context.Context, p Plan, b *Bundle) error {
 	if !p.Snapshot.Root {
 		return errors.New("run install/apply/upgrade as root")
@@ -55,7 +58,7 @@ func (h *NativeHost) Apply(ctx context.Context, p Plan, b *Bundle) error {
 	return reconcile(ctx, p, b, h.Runner, AtomicWrite)
 }
 
-// Reconcile has two explicit side-effect boundaries, commands and file writes.
+// reconcile has two explicit side-effect boundaries, commands and file writes.
 // Tests execute this real ordering with fake operations and no root privileges.
 func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func(string, []byte, fs.FileMode) error) error {
 	var err error
@@ -131,6 +134,7 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 		_, err := runner.Run(ctx, Command{Name: K3sPath, Args: append([]string{"kubectl", "--kubeconfig", KubeconfigPath, "--cache-dir", filepath.Join(b.Dir, "kube-cache")}, args...), Input: input})
 		return err
 	}
+	// Shared add-ons require both a ready API and a ready local server node.
 	if err = waitReady(ctx, func() error { return kube(nil, "get", "--raw=/readyz", "--request-timeout=10s") }, 5*time.Minute); err != nil {
 		return err
 	}
@@ -152,6 +156,7 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 		if _, err = runner.Run(ctx, Command{Name: b.Helm, Args: helmUpgradeArgs(chart, b), Env: b.HelmEnv()}); err != nil {
 			return fmt.Errorf("reconcile %s: %w; fix the error and rerun", chart.Release, err)
 		}
+		// Issuers cannot be applied until cert-manager's custom resource exists.
 		if chart.Release == "cert-manager" {
 			if err = kube(nil, "wait", "--for=condition=Established", "crd/clusterissuers.cert-manager.io", "--timeout=120s"); err != nil {
 				return err
@@ -174,6 +179,8 @@ func upgradeCommand(p Plan) string {
 	}
 	return "apply"
 }
+
+// sameSnapshot detects relevant host changes between planning and lock acquisition.
 func sameSnapshot(a, b Snapshot) bool {
 	if a.K3sVersion != b.K3sVersion || a.Managed != b.Managed || a.Existing != b.Existing || a.TokenSHA256 != b.TokenSHA256 || a.ServiceActive != b.ServiceActive || a.Hostname != b.Hostname || a.Role != b.Role {
 		return false
@@ -185,6 +192,8 @@ func sameSnapshot(a, b Snapshot) bool {
 	}
 	return true
 }
+
+// waitReady retries a readiness probe until it succeeds, times out, or is cancelled.
 func waitReady(ctx context.Context, probe func() error, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
