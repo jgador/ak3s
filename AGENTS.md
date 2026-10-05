@@ -17,6 +17,9 @@ Use Go 1.25+, Make, and Bash.
 - `bin/ak3s help`: inspect commands without installing a cluster.
 - `make test`: run Go tests with race detection and coverage.
 - `make verify`: run tests, `go vet`, formatting checks, and installer syntax checks.
+- `make secrets-setup`: enable the local Gitleaks pre-commit hook (Bash 4+, jq 1.6+, and Gitleaks 8.30.1 or newer 8.x).
+- `make secrets-scan`: scan the index and non-ignored working files; `make secrets-history` scans local Git history.
+- `make test-secrets`: test secret scanning and the Git hook in isolated repositories.
 - `make release`: build Linux amd64/arm64 binaries and checksums in `dist/`.
 - `go test -tags integration -run TestPinnedCharts -v ./internal/ak3s`: verify downloads and Helm rendering; requires outbound HTTPS.
 

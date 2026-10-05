@@ -85,6 +85,15 @@ make release  # Linux amd64/arm64 binaries and checksums in dist/
 
 See [testing and releases](docs/testing.md). Licensed under [MIT](LICENSE).
 
+For [local secret scanning](docs/secret-scanning.md), use Bash, jq, and
+Gitleaks 8.30.1 or newer 8.x, then run `make secrets-setup` and
+`make secrets-scan`. The pre-commit hook checks staged content before each commit.
+
+The [TypeScript dashboard mockup](dashboard/README.md) provides a local preview of
+cluster summaries, configuration, and upgrades, with links to the existing
+Kubernetes and observability tools. Run it with `cd dashboard`, `npm ci`, and
+`npm run dev`. It uses sample data and needs no cluster.
+
 For a fresh local WSL installation test, invoke `$clean-slate` from this repository
 to use the [AK3S cleanup skill](.agents/skills/clean-slate/SKILL.md). It removes
 verified cluster data and AK3S configuration while preserving source and shared

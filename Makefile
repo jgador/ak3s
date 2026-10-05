@@ -10,7 +10,7 @@ COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS = -s -w -X github.com/jgador/ak3s/internal/ak3s.Version=$(VERSION) -X github.com/jgador/ak3s/internal/ak3s.Commit=$(COMMIT)
 
 # These names are tasks, so run them even if a file has the same name.
-.PHONY: build test verify release
+.PHONY: build test verify release secrets-setup secrets-scan secrets-staged secrets-history test-secrets
 
 # Build bin/ak3s for the current OS and architecture without C bindings.
 build:
@@ -29,6 +29,24 @@ verify: test
 # go fmt fixes formatting; this task fails if it had to change any files.
 	test -z "$$($(GO) fmt ./...)"
 	bash -n install.sh
+	for script in scripts/*.sh scripts/lib/*.sh; do bash -n "$$script" || exit; done
+	sh -n .githooks/pre-commit
+
+# Local secret scanning uses Bash, jq, and Gitleaks 8.30.1 or newer 8.x.
+secrets-setup:
+	bash scripts/install-git-hooks.sh
+
+secrets-scan:
+	bash scripts/check-secrets.sh
+
+secrets-staged:
+	bash scripts/check-secrets.sh staged
+
+secrets-history:
+	bash scripts/check-secrets.sh history
+
+test-secrets:
+	bash scripts/check-secrets.test.sh
 
 # Cross-compile static Linux binaries for amd64 and arm64 into dist/.
 release:

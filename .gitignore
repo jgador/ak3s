@@ -5,5 +5,11 @@
 /cluster.yaml
 /inventory.yaml
 /.ak3s/
+/.kube/
+/.env
+/.env.*
+!/.env.example
+!/.env.sample
+!/.env.template
 /.tmp/*
 !/.tmp/.gitkeep

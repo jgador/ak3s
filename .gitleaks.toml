@@ -1,0 +1,26 @@
+title = "AK3S secret scanning"
+minVersion = "v8.30.1"
+
+[extend]
+useDefault = true
+
+# Retain upstream rules and cover variable-length project and service keys.
+[[rules]]
+id = "ak3s-openai-key"
+description = "Possible OpenAI project, service-account, or admin key"
+regex = '''\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}'''
+keywords = ["sk-proj-", "sk-svcacct-", "sk-admin-"]
+
+[[rules]]
+id = "ak3s-join-token"
+description = "Possible K3s secure join token"
+regex = '''\bK10[a-fA-F0-9]{64}::(?:server|agent):[A-Za-z0-9._-]{16,}'''
+keywords = ["K10"]
+
+# Reject private runtime files even when their credential format is unknown.
+[[rules]]
+id = "ak3s-private-auth-file"
+description = "Private authentication or cluster runtime file"
+path = '''(?:^|/)(?:\.ak3s/|\.kube/)|(?:^|/)(?:auth\.json(?:\.[^/]*)?|kubeconfig(?:\.[^/]*)?|k3s\.yaml|(?:server|agent)-token(?:\.[^/]*)?|\.env(?:\.[^/]*)?)$'''
+[[rules.allowlists]]
+paths = ['''(?:^|/)(?:\.ak3s|\.kube)/\.gitkeep$''', '''(?:^|/)\.env\.(?:example|sample|template)$''']
