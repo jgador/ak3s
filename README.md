@@ -79,6 +79,8 @@ make release  # Linux amd64/arm64 binaries and checksums in dist/
 
 See [testing and releases](docs/testing.md). Licensed under [MIT](LICENSE).
 
+Codex hooks in `.codex/hooks.json` run `gofmt` on changed Go files after edits and shell commands. Review and trust them with `/hooks` in Codex.
+
 ### Coding agent temporary files
 
 Use `.tmp/` for ad hoc runs and temporary files, including Playwright scripts, screenshots, traces, and logs. Remove them when finished. Contents are Git-ignored; keep `.gitkeep`.
