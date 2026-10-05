@@ -90,7 +90,7 @@ func TestOwnershipIdentityAndUpgradeGuards(t *testing.T) {
 		t.Fatal("fresh upgrade allowed")
 	}
 	s := managedSnapshot(t, c)
-	s.K3sVersion = "v1.35.9+k3s1"
+	s.K3sVersion = "v1.36.5+k3s1"
 	p, err := BuildPlan(c, pins, s, "upgrade")
 	if err != nil || !p.InstallBinary {
 		t.Fatal(err)

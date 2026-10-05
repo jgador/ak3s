@@ -253,7 +253,7 @@ func (a *App) status(ctx context.Context, c Config, p Pins, s Snapshot) error {
 	for _, resource := range []string{"nodes", "pods", "svc", "ingress", "clusterissuers"} {
 		out, err := a.Runner.Run(ctx, Command{Name: K3sPath, Args: []string{"kubectl", "--kubeconfig", KubeconfigPath, "--cache-dir", dir, "get", resource, "-A", "--request-timeout=30s"}})
 		if err != nil {
-			return err
+			return fmt.Errorf("read cluster %s: %w", resource, err)
 		}
 		fmt.Fprintln(a.Out, string(out))
 	}

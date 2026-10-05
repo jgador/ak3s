@@ -61,7 +61,7 @@ func TestChecksumArchiveAndPins(t *testing.T) {
 		}
 	}
 	p := testPins(t)
-	if len(p.Charts) != 6 || !strings.HasSuffix(p.K3sURL("amd64"), "/k3s") || !strings.HasSuffix(p.K3sURL("arm64"), "/k3s-arm64") || kubeVersion(p) != "1.36.5" {
+	if len(p.Charts) != 6 || !strings.HasSuffix(p.K3sURL("amd64"), "/k3s") || !strings.HasSuffix(p.K3sURL("arm64"), "/k3s-arm64") || kubeVersion(p) != "1.37.1" {
 		t.Fatal(p)
 	}
 }

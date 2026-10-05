@@ -85,6 +85,12 @@ make release  # Linux amd64/arm64 binaries and checksums in dist/
 
 See [testing and releases](docs/testing.md). Licensed under [MIT](LICENSE).
 
+For a fresh local WSL installation test, invoke `$clean-slate` from this repository
+to use the [AK3S cleanup skill](.agents/skills/clean-slate/SKILL.md). It removes
+verified cluster data and AK3S configuration while preserving source and shared
+developer tools. The skill is repository-local and runs only when explicitly
+invoked.
+
 The Codex hook in `.codex/hooks.json` runs `gofmt` on changed Go files after edits and shell commands. [AGENTS.md](AGENTS.md#final-wording-review) directs the agent to review wording after implementation and verification, while preserving technical decisions and program behavior.
 
 Review and trust new or changed hooks with `/hooks` in Codex. [Codex skips them until their current definitions are trusted](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).

@@ -188,6 +188,26 @@ func TestCLIStatusNeverUsesAmbientContext(t *testing.T) {
 	}
 }
 
+// TestCLIStatusIdentifiesMissingResource keeps partial status output and identifies a failed resource query.
+func TestCLIStatusIdentifiesMissingResource(t *testing.T) {
+	app, h, out, calls := appFixture(t)
+	h.s = managedSnapshot(t, testConfig(t))
+	failure := errors.New("resource unavailable")
+	app.Runner = runFunc(func(_ context.Context, c Command) ([]byte, error) {
+		if strings.Contains(strings.Join(c.Args, " "), "get clusterissuers ") {
+			return nil, failure
+		}
+		return []byte("observed"), nil
+	})
+	err := app.Run(context.Background(), []string{"status"})
+	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "read cluster clusterissuers") {
+		t.Fatalf("missing resource query context: %v", err)
+	}
+	if !strings.Contains(out.String(), "observed") || *calls != 0 || h.applies != 0 {
+		t.Fatal("lost partial status or changed the host")
+	}
+}
+
 // TestRenderOutput checks that render exports configuration and resources without inspecting or changing the host.
 func TestRenderOutput(t *testing.T) {
 	app, h, _, _ := appFixture(t)

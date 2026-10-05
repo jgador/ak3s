@@ -145,8 +145,13 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 	if name == "" {
 		name = p.Snapshot.Hostname
 	}
+	// The API can be ready before the local kubelet registers its node.
+	// A condition wait fails immediately if the named node does not exist.
+	if err = kube(nil, "wait", "--for=create", "node/"+name, "--timeout=180s"); err != nil {
+		return fmt.Errorf("wait for local node registration: %w", err)
+	}
 	if err = kube(nil, "wait", "--for=condition=Ready", "node/"+name, "--timeout=180s"); err != nil {
-		return err
+		return fmt.Errorf("wait for local node readiness: %w", err)
 	}
 	p.State.PendingRestart = false
 	if err = write(StatePath, p.StateJSON(), 0600); err != nil {
@@ -163,16 +168,16 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 		// Issuers cannot be applied until cert-manager's custom resource exists.
 		if chart.Release == "cert-manager" {
 			if err = kube(nil, "wait", "--for=condition=Established", "crd/clusterissuers.cert-manager.io", "--timeout=120s"); err != nil {
-				return err
+				return fmt.Errorf("wait for ClusterIssuer resource registration: %w", err)
 			}
 			if err = kube(b.Manifests["issuers.yaml"], "apply", "-f", "-"); err != nil {
-				return err
+				return fmt.Errorf("apply ClusterIssuers: %w", err)
 			}
 		}
 	}
 	for _, name := range []string{"headlamp-rbac.yaml", "metrics-rbac.yaml"} {
 		if err = kube(b.Manifests[name], "apply", "-f", "-"); err != nil {
-			return err
+			return fmt.Errorf("apply %s: %w", name, err)
 		}
 	}
 	return nil

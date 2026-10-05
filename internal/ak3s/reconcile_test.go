@@ -96,6 +96,72 @@ func TestRealReconcileOrderAndIdempotency(t *testing.T) {
 	}
 }
 
+// TestReconcileWaitsForNodeRegistration simulates an API that becomes ready before its local node exists.
+func TestReconcileWaitsForNodeRegistration(t *testing.T) {
+	c := testConfig(t)
+	p, err := BuildPlan(c, testPins(t), managedSnapshot(t, c), "apply")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Bundle{Dir: t.TempDir(), Helm: "/fake/helm", Manifests: map[string][]byte{}}
+	e := &effects{}
+	registered := false
+	ready := false
+	runner := runFunc(func(ctx context.Context, cmd Command) ([]byte, error) {
+		args := strings.Join(cmd.Args, " ")
+		if cmd.Name == K3sPath && strings.Contains(args, "wait --for=create node/"+p.Config.Node.Name) {
+			registered = true
+		}
+		if cmd.Name == K3sPath && strings.Contains(args, "wait --for=condition=Ready node/"+p.Config.Node.Name) {
+			if !registered {
+				return nil, errors.New("node not found")
+			}
+			ready = true
+		}
+		if cmd.Name == b.Helm && !ready {
+			t.Fatal("installed a chart before the local node was Ready")
+		}
+		return e.Run(ctx, cmd)
+	})
+	if err = reconcile(context.Background(), p, b, runner, e.write); err != nil {
+		t.Fatal(err)
+	}
+	if !ready || !e.has("upgrade --install nginx-ingress") {
+		t.Fatal("reconciliation did not continue after node registration and readiness")
+	}
+}
+
+// TestReconcileStopsBeforeChartsOnNodeFailure preserves the restart checkpoint when node registration or readiness fails.
+func TestReconcileStopsBeforeChartsOnNodeFailure(t *testing.T) {
+	c := testConfig(t)
+	p, err := BuildPlan(c, testPins(t), managedSnapshot(t, c), "apply")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Bundle{Dir: t.TempDir(), Helm: "/fake/helm", Manifests: map[string][]byte{}}
+	for _, stage := range []struct {
+		command string
+		message string
+	}{
+		{"wait --for=create node/", "wait for local node registration"},
+		{"wait --for=condition=Ready node/", "wait for local node readiness"},
+	} {
+		t.Run(stage.message, func(t *testing.T) {
+			e := &effects{failCommand: stage.command}
+			err := reconcile(context.Background(), p, b, e, e.write)
+			if err == nil || !strings.Contains(err.Error(), stage.message) {
+				t.Fatalf("missing failure context: %v", err)
+			}
+			if e.has("upgrade --install") {
+				t.Fatal("installed charts after a node wait failed")
+			}
+			if len(e.states) != 1 || !e.states[0].PendingRestart {
+				t.Fatal("cleared restart checkpoint before node readiness", e.states)
+			}
+		})
+	}
+}
+
 // TestReconcileStopsOnFailures checks that command and file write failures stop later reconciliation steps.
 func TestReconcileStopsOnFailures(t *testing.T) {
 	c := testConfig(t)

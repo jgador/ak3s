@@ -1,0 +1,5 @@
+interface:
+  display_name: "AK3S Clean Slate"
+  short_description: "Remove the local AK3S cluster and test configuration"
+policy:
+  allow_implicit_invocation: false

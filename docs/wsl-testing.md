@@ -39,10 +39,9 @@ Inside **AK3S-Lab**, edit `/etc/wsl.conf` with `sudo nano /etc/wsl.conf`. Merge 
 ```ini
 [boot]
 systemd=true
-
-[network]
-hostname=ak3s-lab
 ```
+
+Keep the distribution's existing hostname. `AK3S-Lab` is only the distribution name used by Windows commands; it is not a browser address. Use `localhost` for local access as described below.
 
 In **Windows**, edit `%UserProfile%\.wslconfig` (for example with `notepad.exe "$env:USERPROFILE\.wslconfig"` in PowerShell). Preserve unrelated settings and merge:
 
@@ -83,7 +82,7 @@ sudo modprobe overlay
 sudo modprobe br_netfilter
 ```
 
-Check for Ubuntu 24.04+, `x86_64` or `aarch64`, `systemd` as process ID (PID) 1, hostname `ak3s-lab`, approximately 4 GB RAM, and no active swap. The cgroup filesystem, which controls process resources, should be `cgroup2fs`, with `cpu`, `memory`, and `pids` controllers. Both `modprobe` commands must succeed; built-in features need not appear in `lsmod`. AK3S uses these same module-loading commands during installation.
+Check for Ubuntu 24.04+, `x86_64` or `aarch64`, `systemd` as process ID (PID) 1, approximately 4 GB RAM, and no active swap. Record the existing hostname; no particular hostname is required. The cgroup filesystem, which controls process resources, should be `cgroup2fs`, with `cpu`, `memory`, and `pids` controllers. Both `modprobe` commands must succeed; built-in features need not appear in `lsmod`. AK3S uses these same module-loading commands during installation.
 
 Ensure at least 40 GB is available on the Windows drive holding the distribution. WSL's expanding virtual disk and `df` can report more capacity than the Windows host has free, even with a virtual-disk size cap. Reserve the space on Windows; a full VM with a dedicated disk behaves more like a VPS when disk space is low. Keep cluster data on the distribution's Linux filesystem, not `/mnt/c` or another Windows mount.
 
@@ -171,14 +170,18 @@ sudo nano /etc/ak3s/values.yaml
 
 ```yaml
 acme_email: you@example.com # replace with your own valid contact address
-api_endpoint: 127.0.0.1
+api_endpoint: localhost
 node:
-  name: ak3s-lab
+  name: localhost
 ```
+
+This example is for a **new cluster**. `node.name` is the Kubernetes node's identity, independent of the WSL hostname and browser address. Using `localhost` as the node name does not rename the distribution or change network routing. If omitted for a new cluster, AK3S uses the existing hostname in lowercase.
+
+For an already installed cluster, preserve its original `node.name` when rerunning AK3S. For example, if `sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get nodes` reports `ak3s-lab`, keep `node.name: ak3s-lab` in that cluster's configuration. It can still be accessed through `localhost`. Changing the node name requires an explicit migration; use a fresh disposable cluster to test a different name.
 
 The full platform requires a contact email and creates Let's Encrypt ClusterIssuers. Those issuers may register accounts over outbound HTTPS using ACME (Automated Certificate Management Environment), the protocol for automated certificate issuance. The local demo uses a separate self-signed issuer. No public domain is required. Leave `headlamp_hostname` unset to keep the dashboard private.
 
-Keep `api_endpoint` on loopback for this single-node test environment: WSL's NAT IP can change after restart. This setting adds an address to the API certificate; it does not restrict which addresses K3s listens on. K3s and ingress still listen on the node. For the real VPS, use a reachable VPS IP or API DNS name and apply the [VPS firewall requirements](vps.md#firewall-requirements).
+Keep `api_endpoint` on loopback (`localhost` or `127.0.0.1`) for this single-node test environment: WSL's NAT IP can change after restart. This setting adds an address to the API certificate; it does not restrict which addresses K3s listens on. K3s and ingress still listen on the node. For the real VPS, use a reachable VPS IP or API DNS name and apply the [VPS firewall requirements](vps.md#firewall-requirements).
 
 Preview, review, then install:
 
@@ -201,9 +204,9 @@ export AK3S_TEST_ADDRESS=$(ip -4 route get 192.0.2.1 | awk '{for (i=1;i<=NF;i++)
 printf '%s\n' "$AK3S_TEST_ADDRESS"
 ```
 
-This only looks up a route; it sends no traffic to the example address. Recompute it after every WSL restart. The runtime guide uses `curl --resolve` so neither public DNS nor a hosts-file edit is needed.
+This only looks up a route; it sends no traffic to the example address. Recompute it after every WSL restart. The runtime guide uses `curl --resolve` so neither public DNS nor a hosts-file edit is needed. The demo's `hello.test` hostname selects its ingress rule and certificate; it is separate from the node name. Keep this check on the WSL IP because K3s ServiceLB routes ingress through host-port rules, which localhost forwarding may not expose as a listening socket.
 
-For Headlamp and the metrics and log interfaces, keep their port-forward commands in separate test terminals. In Windows, try `http://127.0.0.1:8080`, `http://127.0.0.1:8428/vmui/`, and `http://127.0.0.1:9428/select/vmui/`. These test Windows-to-WSL access in addition to the Linux checks. If localhost forwarding is unavailable, run the curl checks inside the test environment first and follow [WSL networking guidance](https://learn.microsoft.com/en-us/windows/wsl/networking). Do not use `--address 0.0.0.0` to make private services reachable.
+For Headlamp and the metrics and log interfaces, keep their port-forward commands in separate test terminals. In Windows, try `http://localhost:8080`, `http://localhost:8428/vmui/`, and `http://localhost:9428/select/vmui/`. These test Windows-to-WSL access in addition to the Linux checks. If `localhost` selects IPv6 and fails, try `127.0.0.1` instead. If localhost forwarding is unavailable, run the curl checks inside the test environment first and follow [WSL networking guidance](https://learn.microsoft.com/en-us/windows/wsl/networking). Do not use `--address 0.0.0.0` to make private services reachable.
 
 ### Test a distribution stop and start
 
@@ -227,7 +230,7 @@ Inside the test environment, confirm that the enabled service starts automatical
 ```bash
 sudo systemctl is-enabled k3s
 sudo systemctl is-active k3s
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml wait --for=condition=Ready node/ak3s-lab --timeout=300s
+sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml wait --for=condition=Ready nodes --all --timeout=300s
 sudo ak3s status
 ```
 
@@ -255,6 +258,15 @@ wsl --distribution AK3S-Restore
 Imported distributions may start as root. Verify K3s starts, the node becomes Ready, all platform workloads recover, and the persistent marker remains readable using the runtime checklist. Run only one copy of the backed-up cluster at a time; the restored copy deliberately keeps the test environment's node name and credentials. Do not run both copies to simulate a redundant control plane.
 
 ## Clean up
+
+To reuse the current WSL distribution for a fresh AK3S test or another installer,
+invoke `$clean-slate` in Codex from this repository. The repository-local
+[AK3S cleanup skill](../.agents/skills/clean-slate/SKILL.md) removes the verified
+local cluster, its persistent data and credentials, and AK3S configuration,
+including `/etc/ak3s/values.yaml`. It preserves repositories, developer tools,
+the AK3S CLI, and shared services. It checks ownership before deleting anything
+and does not unregister WSL or reinstall a cluster. Recreate the test configuration
+before installing AK3S again.
 
 After saving any test results you need, close port-forward commands and stop K3s in each test distribution. In **PowerShell**, inspect the distribution names before deleting. **The following commands permanently delete all data in the named test distributions**; run the `AK3S-Restore` command only if you created that distribution:
 
@@ -286,5 +298,6 @@ Repeat the runtime checklist there, including its [public VPS checks](runtime-te
 | ACME errors for a local hostname | Use `local-app.yaml`, not the public-domain example. `hello.test` is not eligible for Let's Encrypt |
 | Pods pending, OOMKilled (terminated because memory was exhausted), or image downloads fail | Check actual RAM and disk space, persistent volume claim (PVC) events, outbound HTTPS, registry connectivity, and `journalctl -u k3s` |
 | Interrupted installation or failed chart | Fix the underlying failure and rerun AK3S; preserve its ownership, configuration, and state files |
+| First install fails, but K3s is active and the node later becomes Ready | Check the API with `sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get --raw=/readyz`, then rerun `sudo ak3s install` with the same configuration. A Ready node alone does not confirm platform installation; missing ClusterIssuers can make `status` fail until cert-manager is installed |
 
 Reference: Microsoft's [WSL commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands), [configuration](https://learn.microsoft.com/en-us/windows/wsl/wsl-config), and [systemd setup](https://learn.microsoft.com/en-us/windows/wsl/systemd).
