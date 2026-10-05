@@ -1,4 +1,4 @@
-# Explicit release pins. Change deliberately and validate before upgrading.
+# Pinned release versions and checksums. Validate changes before upgrading.
 k3s: v1.36.5+k3s1
 k3s_sha256:
   amd64: d73847bcd3c5fccef0115b372e2f9a91f3032dc84bbf71518a4617565294d313
@@ -28,7 +28,7 @@ charts:
   - release: headlamp
     namespace: headlamp
 
-    # Direct immutable release URL avoids relying on a chart repository index.
+    # A direct release URL avoids relying on a chart repository index.
     chart: https://github.com/kubernetes-sigs/headlamp/releases/download/headlamp-helm-0.45.0/headlamp-0.45.0.tgz
     version: 0.45.0
     url: https://github.com/kubernetes-sigs/headlamp/releases/download/headlamp-helm-0.45.0/headlamp-0.45.0.tgz

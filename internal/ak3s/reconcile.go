@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// lock prevents concurrent local applies and returns a function that releases the lock.
+// lock prevents concurrent local apply operations and returns a function to release the lock.
 func lock(dir string) (func(), error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func (h *NativeHost) Apply(ctx context.Context, p Plan, b *Bundle) error {
 	}
 	defer unlock()
 
-	// Recheck state after acquiring the lock: do not apply a stale ownership/token plan.
+	// Recheck ownership and token state after acquiring the lock to reject a stale plan.
 	fresh, err := h.Inspect(ctx, p.Config)
 	if err != nil {
 		return err
@@ -59,8 +59,8 @@ func (h *NativeHost) Apply(ctx context.Context, p Plan, b *Bundle) error {
 	return reconcile(ctx, p, b, h.Runner, AtomicWrite)
 }
 
-// reconcile has two explicit side-effect boundaries, commands and file writes.
-// Tests execute this real ordering with fake operations and no root privileges.
+// reconcile changes the host through commands and file writes.
+// Tests verify this execution order with simulated operations and no root privileges.
 func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func(string, []byte, fs.FileMode) error) error {
 	var err error
 	if p.InstallBinary {
@@ -87,7 +87,7 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 		return err
 	}
 
-	// Checkpoint identity before K3s starts, so interrupted installs retain guards.
+	// Record identity before K3s starts so interrupted installs retain identity checks.
 	if err = write(StatePath, p.StateJSON(), 0600); err != nil {
 		return err
 	}

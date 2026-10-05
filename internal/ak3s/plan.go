@@ -12,7 +12,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// Fixed paths keep operations scoped to the local AK3S-managed installation.
+// Fixed paths restrict operations to the local AK3S-managed installation.
 const (
 	K3sPath        = "/usr/local/bin/k3s"
 	ConfigPath     = "/etc/rancher/k3s/config.yaml"
@@ -23,7 +23,7 @@ const (
 	SysctlPath     = "/etc/sysctl.d/90-ak3s.conf"
 )
 
-// State checkpoints the last attempted release and node identity across runs.
+// State records the last attempted release and node identity across runs.
 // It is not a guarantee that every platform service is healthy.
 type State struct {
 
@@ -52,7 +52,7 @@ type Snapshot struct {
 // Action describes a proposed operation for CLI output, without executing it.
 type Action struct{ Kind, Target, Detail string }
 
-// Plan holds desired files, required operations, and any blockers found during planning.
+// Plan holds desired files, required operations, and failed checks found during planning.
 type Plan struct {
 	Config                 Config
 	Pins                   Pins
@@ -209,12 +209,12 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 		for _, chart := range pins.Charts {
 			p.Actions = append(p.Actions, Action{"reconcile", chart.Release, chart.Version + "; Helm upgrade --install --reset-values --atomic --wait"})
 		}
-		p.Actions = append(p.Actions, Action{"apply", "ClusterIssuers and RBAC", "idempotent kubectl apply"})
+		p.Actions = append(p.Actions, Action{"apply", "ClusterIssuers and role-based access control (RBAC)", "idempotent kubectl apply"})
 	}
 	p.State = State{PendingRestart: true, Schema: 1, AK3SVersion: Version, K3sVersion: pins.K3s, ClusterName: c.ClusterName, Node: c.Node, TokenSHA256: s.TokenSHA256}
 	p.Warnings = append(p.Warnings, "Helm rollback is per release; there is no whole-platform rollback")
 	if c.Node.Datastore == "etcd" {
-		p.Warnings = append(p.Warnings, "run one server at a time and verify quorum; server_count describes intended topology, not observed quorum")
+		p.Warnings = append(p.Warnings, "run one server at a time and verify etcd quorum (a majority of servers available); server_count describes the intended topology and does not confirm quorum")
 	}
 	if !s.Kubeconfig && c.Platform {
 		p.Warnings = append(p.Warnings, "cluster API validation is deferred until K3s is ready; local chart templates and schemas are checked")
@@ -228,7 +228,7 @@ func (p Plan) StateJSON() []byte {
 	return append(data, '\n')
 }
 
-// Check returns all host blockers as one error before a plan is applied.
+// Check returns all failed host checks as one error before a plan is applied.
 func (p Plan) Check() error {
 	if len(p.Problems) > 0 {
 		return errors.New(strings.Join(p.Problems, "; "))

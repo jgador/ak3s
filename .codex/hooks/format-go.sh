@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Format pending Go changes without traversing ignored scratch files.
+# Format changed Go files without searching ignored temporary files.
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"

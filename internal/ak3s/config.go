@@ -131,7 +131,7 @@ func checkYAML(n *yaml.Node) error {
 	return nil
 }
 
-// LoadConfig merges sparse YAML overrides with embedded defaults and validates them.
+// LoadConfig merges YAML overrides with embedded defaults and validates them.
 func LoadConfig(overrides []byte) (Config, error) {
 	var c Config
 	defaults, err := platform.Files.ReadFile("defaults.yaml")
@@ -180,7 +180,7 @@ func endpoint(s string) bool {
 	return hostname(s) && !regexp.MustCompile(`^[0-9.]+$`).MatchString(s)
 }
 
-// Validate checks setting formats, supported topology, and chart override names.
+// Validate checks setting formats, supported cluster topology, and chart override names.
 // Host prerequisites and installation-only requirements are checked separately.
 func (c Config) Validate() error {
 	if !labelRE.MatchString(c.ClusterName) {
@@ -195,7 +195,7 @@ func (c Config) Validate() error {
 		}
 	}
 	if c.ACMEEmail != "" && !regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`).MatchString(c.ACMEEmail) {
-		return errors.New("acme_email must be a contact email")
+		return errors.New("acme_email must be a contact email address")
 	}
 	if c.ACMEEnvironment != "staging" && c.ACMEEnvironment != "production" {
 		return errors.New("acme_environment must be staging or production")
@@ -228,7 +228,7 @@ func (c Config) Validate() error {
 	}
 	for _, s := range []string{n.IP, n.ExternalIP} {
 		if s != "" && (net.ParseIP(s) == nil || net.ParseIP(s).To4() == nil) {
-			return errors.New("node addresses must be IPv4")
+			return errors.New("node addresses must be IPv4 addresses")
 		}
 	}
 	if n.FlannelIface != "" && !regexp.MustCompile(`^[a-zA-Z0-9_.:-]{1,15}$`).MatchString(n.FlannelIface) {
@@ -275,7 +275,7 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// ValidateInstall requires the ACME contact only when platform services are managed.
+// ValidateInstall requires an ACME contact email only when platform services are managed.
 func (c Config) ValidateInstall() error {
 	if c.Platform && c.ACMEEmail == "" {
 		return errors.New("set acme_email in values.yaml before installing the platform")

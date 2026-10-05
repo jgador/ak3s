@@ -51,7 +51,7 @@ func K3sConfig(c Config, legacyToken string) ([]byte, error) {
 	return yaml.Marshal(v)
 }
 
-// ValuesFor merges chart defaults, generated AK3S settings, then operator overrides.
+// ValuesFor merges chart defaults, generated AK3S settings, and operator overrides in that order.
 func ValuesFor(chart Chart, c Config) ([]byte, error) {
 	raw, err := platform.Files.ReadFile("values/" + chart.Values)
 	if err != nil {
@@ -129,7 +129,7 @@ func ValidateManifests(data []byte) error {
 	return nil
 }
 
-// serviceUnit runs K3s directly with the managed config and role-specific startup signaling.
+// serviceUnit runs K3s with the managed configuration and a service type suited to its role.
 func serviceUnit(role string) []byte {
 	serviceType := "notify"
 	if role == "agent" {

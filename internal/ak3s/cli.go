@@ -36,14 +36,14 @@ const usage = `Usage: ak3s <command> [options]
 Commands:
   install   Install or reconcile this node and its platform
   apply     Reconcile the desired state (same safety checks as install)
-  upgrade   Apply this AK3S release's pins; allow a safe K3s version increase
+  upgrade   Apply this AK3S release's pinned versions; allow a safe K3s upgrade
   status    Read this node's state and cluster resources
-  config    Print merged configuration, or --defaults for shipped defaults
+  config    Print merged configuration, or --defaults for embedded defaults
   render    Validate and render K3s, Helm values and Kubernetes resources
   version   Print AK3S and managed component versions
 
 Options (after command):
-  --config PATH    Sparse YAML overrides (otherwise /etc/ak3s/values.yaml, if present)
+  --config PATH    YAML overrides (otherwise /etc/ak3s/values.yaml, if present)
   --dry-run        Plan install/apply/upgrade without persistent changes
   --output DIR     Write render results to a directory (render only)
   --defaults       Print embedded defaults (config only)
@@ -67,7 +67,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	f.SetOutput(a.Err)
 	var path, output string
 	var dry, defaults bool
-	f.StringVar(&path, "config", "", "sparse values.yaml overrides")
+	f.StringVar(&path, "config", "", "values.yaml overrides; omitted settings use defaults")
 	if command == "install" || command == "apply" || command == "upgrade" {
 		f.BoolVar(&dry, "dry-run", false, "make no persistent changes")
 	}
@@ -188,8 +188,8 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		fmt.Fprintln(a.Out, "BLOCKED:", problem)
 	}
 
-	// Host blockers do not prevent dry-run from exercising chart rendering, but
-	// real execution must not even download assets for an unsupported host.
+	// Dry-run renders charts even when host checks fail. Real execution stops
+	// before downloading assets for an unsupported host.
 	if !dry {
 		if err = plan.Check(); err != nil {
 			return err
@@ -237,7 +237,7 @@ func (a *App) status(ctx context.Context, c Config, p Pins, s Snapshot) error {
 		return errors.New("K3s service is not active")
 	}
 	if c.Node.Role == "agent" {
-		fmt.Fprintln(a.Out, "Agent service is active; inspect Node Ready from a server.")
+		fmt.Fprintln(a.Out, "Agent service is active; check the node's Ready condition from a server.")
 		return nil
 	}
 	if !s.Kubeconfig {

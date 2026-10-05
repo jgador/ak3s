@@ -1,4 +1,4 @@
-# Local rehearsal only. This issuer creates a self-signed test certificate.
+# For local testing only. This issuer creates a self-signed test certificate.
 # Use app.yaml and a public hostname for Let's Encrypt checks on a VPS.
 apiVersion: v1
 kind: Namespace
@@ -41,7 +41,7 @@ spec:
           args:
             - |
               if [ ! -f /site/index.html ]; then
-                printf 'ak3s rehearsal: persistent storage is working\n' > /site/index.html
+                printf 'ak3s test: persistent storage is working\n' > /site/index.html
               fi
           volumeMounts:
             - name: site

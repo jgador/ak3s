@@ -48,7 +48,7 @@ func (e *effects) has(needle string) bool {
 	return false
 }
 
-// TestRealReconcileOrderAndIdempotency checks readiness gates, chart ordering and restart checkpoints across repeated applies.
+// TestRealReconcileOrderAndIdempotency checks readiness, chart ordering and restart checkpoints across repeated apply operations.
 func TestRealReconcileOrderAndIdempotency(t *testing.T) {
 	c := testConfig(t)
 	p, err := BuildPlan(c, testPins(t), managedSnapshot(t, c), "apply")
@@ -65,7 +65,7 @@ func TestRealReconcileOrderAndIdempotency(t *testing.T) {
 			t.Fatal("unchanged node restarted")
 		}
 		if !e.has("systemctl start k3s") || !e.has("wait --for=condition=Ready node/node1") {
-			t.Fatal("no readiness gate")
+			t.Fatal("readiness check missing")
 		}
 		helmCalls := 0
 		certIndex := -1
@@ -111,7 +111,7 @@ func TestReconcileStopsOnFailures(t *testing.T) {
 				t.Fatal("continued after failure")
 			}
 			if failure == "apt-get update" && len(e.writes) > 0 {
-				t.Fatal("wrote files before package preflight")
+				t.Fatal("wrote files before package preparation")
 			}
 		})
 	}

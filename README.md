@@ -1,10 +1,10 @@
 # AK3S
 
-AK3S is a lightweight alternative to Azure Kubernetes Service (AKS) for small deployments that prioritize saving money. It installs K3s and essential platform services on an existing Linux VPS.
+AK3S is an alternative to Azure Kubernetes Service (AKS) for small deployments that need to keep costs low. It installs K3s and essential platform services on an existing Linux VPS.
 
 A **VPS (virtual private server)** is a virtual machine rented from a hosting provider, with allocated CPU, RAM, disk, networking, and root access. AK3S works inside a VPS that meets its [requirements](docs/vps.md), regardless of provider; Hetzner Cloud is one example.
 
-Support focuses on the **control plane**. The default single server also runs your applications, avoiding a separate worker VPS. You manage maintenance, backups, security, and availability.
+Support focuses on the **control plane**, which manages the Kubernetes cluster. The default single server also runs your applications, avoiding a separate worker VPS. You manage maintenance, backups, security, and availability.
 
 ## What's installed
 
@@ -21,15 +21,15 @@ Support focuses on the **control plane**. The default single server also runs yo
 | Resource metrics | metrics-server | Support `kubectl top` and resource-based autoscaling |
 | Storage | local-path provisioner | Provide persistent volumes on the VPS's disk |
 
-These provide familiar Kubernetes capabilities with a smaller infrastructure footprint. ServiceLB does not create a cloud load balancer, and local storage is not replicated. Headlamp, metrics, and logs are private by default; metrics and logs retain seven days.
+These components provide Kubernetes capabilities on a single server. ServiceLB does not create a cloud load balancer, and local storage is not replicated. Headlamp, metrics, and logs are private by default; metrics and logs retain data for seven days.
 
 Traefik is disabled. The ingress controller uses [`nginx.org/` annotations](https://github.com/nginx/kubernetes-ingress).
 
 ## Install
 
-Use Ubuntu 24.04+ or Debian 12+, systemd, disabled swap, and Linux amd64/arm64. Start with 2 vCPUs, 4 GB RAM, and 40 GB SSD. Installation needs root and outbound HTTPS. Configure the [firewall](docs/vps.md#firewall-requirements) first.
+Use Ubuntu 24.04+ or Debian 12+, systemd, disabled swap, and Linux amd64/arm64. Start with 2 virtual CPUs (vCPUs), 4 GB RAM, and 40 GB SSD. Installation needs root and outbound HTTPS. Configure the [firewall](docs/vps.md#firewall-requirements) first.
 
-To try the full setup locally before renting a VPS, follow the [WSL2 rehearsal guide](docs/wsl-testing.md). It uses the same installer and runtime checks as a VPS, with local networking and test certificates.
+To try the full setup locally before renting a VPS, follow the [Windows Subsystem for Linux 2 (WSL2) testing guide](docs/wsl-testing.md). It uses the same installer and runtime checks as a VPS, with local networking and test certificates.
 
 Replace `vX.Y.Z` with a published [release](https://github.com/jgador/ak3s/releases):
 
@@ -53,7 +53,7 @@ sudo ak3s install
 sudo ak3s status
 ```
 
-The installer downloads a checksum-verified CLI; Go and a repository checkout are unnecessary. The CLI installs its pinned K3s and platform versions. Dry-run previews changes without changing the host or cluster.
+The installer downloads the AK3S binary and verifies its checksum; Go and a repository checkout are unnecessary. Its command-line interface (CLI) installs the pinned K3s binary and uses Helm, a Kubernetes package manager, to install the pinned platform charts. Dry-run previews changes without changing the host or cluster.
 
 For an application, download [app.yaml](examples/app.yaml), change its hostname, point DNS to the VPS, and apply it:
 
@@ -66,7 +66,7 @@ The example uses Let's Encrypt staging. After testing issuance, select `letsencr
 ## Reference
 
 - [VPS and firewall setup](docs/vps.md)
-- [WSL2 rehearsal before a VPS deployment](docs/wsl-testing.md)
+- [WSL2 testing before a VPS deployment](docs/wsl-testing.md)
 - [Runtime testing on WSL2 or a VPS](docs/runtime-testing.md)
 - [Configuration](docs/configuration.md)
 - [Access, upgrades, backups, and troubleshooting](docs/operations.md)
@@ -91,4 +91,4 @@ Review and trust new or changed hooks with `/hooks` in Codex. [Codex skips them 
 
 ### Coding agent temporary files
 
-Use `.tmp/` for ad hoc runs and temporary files, including Playwright scripts, screenshots, traces, and logs. Remove them when finished. Contents are Git-ignored; keep `.gitkeep`.
+Use `.tmp/` for temporary test runs and files, including Playwright scripts, screenshots, traces, and logs. Remove them when finished. Git ignores the contents; keep `.gitkeep`.

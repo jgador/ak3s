@@ -34,7 +34,7 @@ type Runner interface {
 	Run(context.Context, Command) ([]byte, error)
 }
 
-// ExecRunner runs real processes with bounded timeouts and a controlled environment.
+// ExecRunner runs real processes with timeouts and a controlled environment.
 type ExecRunner struct{}
 
 // Run captures successful output and suppresses failed output that may contain secrets.
@@ -50,7 +50,7 @@ func (ExecRunner) Run(ctx context.Context, c Command) ([]byte, error) {
 	cmd.Env = cleanEnv(c.Env)
 	output, err := cmd.CombinedOutput()
 
-	// Do not echo command output on failure: Helm/validation errors can contain Secrets.
+	// Do not print command output on failure: Helm and validation errors can contain Secrets.
 	if err != nil {
 		return nil, fmt.Errorf("%s %s failed: %w (output suppressed to protect secrets)", filepath.Base(c.Name), firstArg(c.Args), err)
 	}
@@ -132,7 +132,7 @@ func (h *NativeHost) Inspect(ctx context.Context, c Config) (Snapshot, error) {
 }
 
 // Inspect reads ownership, configuration, credentials, and host prerequisites.
-// It records blockers in the snapshot without changing host files or services.
+// It records failed prerequisite checks without changing host files or services.
 func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot) (Snapshot, error) {
 	s.Files = map[string][]byte{}
 	exists := func(p string) (bool, error) {
@@ -189,12 +189,12 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 			return s, err
 		}
 		if len(entries) > 0 {
-			s.Problems = append(s.Problems, "unmanaged drop-in configuration at "+p)
+			s.Problems = append(s.Problems, "unmanaged configuration in a drop-in directory at "+p)
 		}
 	}
 
-	// Legacy installation environment may override config.yaml. Require operators
-	// to migrate it explicitly instead of silently changing cluster identity.
+	// Environment files from older installations may override config.yaml.
+	// Require operators to migrate them explicitly to preserve cluster identity.
 	for _, p := range []string{unitPath(c.Node.Role) + ".env", "/etc/default/" + serviceName(c.Node.Role), "/etc/sysconfig/" + serviceName(c.Node.Role)} {
 		data, err := read(p)
 		if err != nil {
@@ -276,7 +276,7 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 		}
 	}
 
-	// Never execute an unowned binary during discovery.
+	// Never execute a binary from an installation that AK3S does not manage.
 	if ok, err := exists(K3sPath); err != nil {
 		return s, err
 	} else if ok && s.Managed {
@@ -299,12 +299,12 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 	return s, nil
 }
 
-// AtomicWrite replaces regular files via a same-directory rename and never follows
-// a final-component symlink. Sensitive existing files have permissions corrected.
+// AtomicWrite replaces regular files by renaming a file in the same directory.
+// It rejects a symlink at the destination and corrects existing file permissions.
 func AtomicWrite(path string, data []byte, mode fs.FileMode) error {
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("refusing non-regular destination %s", path)
+			return fmt.Errorf("destination is not a regular file: %s", path)
 		}
 		old, err := os.ReadFile(path)
 		if err != nil {

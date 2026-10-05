@@ -17,7 +17,7 @@ tolerations:
   - operator: Exists
 
 # The collector follows /var/log/containers symlinks into /var/log/pods.
-# Mount both paths, without a broad /var/lib mount.
+# Mount both paths without mounting all of /var/lib.
 defaultVolumes:
   - name: varlog
     hostPath:

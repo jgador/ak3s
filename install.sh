@@ -23,7 +23,7 @@ trap 'rm -rf "$tmp"' EXIT
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 "$base/$asset" -o "$tmp/$asset"
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 "$base/checksums.txt" -o "$tmp/checksums.txt"
 
-# Accept exactly one entry for this asset; never let a checksum file name paths.
+# Accept exactly one entry for this asset; do not use paths from the checksum file.
 expected=''
 while read -r sum name rest; do
   if [[ "$name" == "$asset" ]]; then
@@ -36,7 +36,7 @@ printf '%s  %s\n' "$expected" "$asset" > "$tmp/selected.sha256"
 (cd "$tmp" && sha256sum --check --status selected.sha256)
 mkdir -p "$destination"
 
-# Stage on the destination filesystem before replacing an existing CLI.
+# Write a temporary file on the destination filesystem before replacing the CLI.
 staged="$(mktemp "$destination/.ak3s-XXXXXX")"
 trap 'rm -rf "$tmp"; rm -f "$staged"' EXIT
 install -m 0755 "$tmp/$asset" "$staged"

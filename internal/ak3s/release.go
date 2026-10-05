@@ -26,7 +26,7 @@ var Version = "dev"
 // Commit is the source revision, set by the build's linker flags.
 var Commit = "unknown"
 
-// Pins identifies the exact binaries and ordered Helm charts shipped in a release.
+// Pins identifies the exact binaries and ordered Helm charts included in a release.
 type Pins struct {
 	K3s        string            `yaml:"k3s"`
 	K3sSHA256  map[string]string `yaml:"k3s_sha256"`
@@ -64,19 +64,19 @@ func LoadPins() (Pins, error) {
 		return p, err
 	}
 	if !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(p.Helm) {
-		return p, errors.New("Helm must have an exact release pin")
+		return p, errors.New("Helm must have a pinned release version")
 	}
 	for _, arch := range []string{"amd64", "arm64"} {
 		for _, sum := range []string{p.K3sSHA256[arch], p.HelmSHA256[arch]} {
 			if !validSHA(sum) {
-				return p, errors.New("missing binary checksum pin")
+				return p, errors.New("missing or invalid pinned binary checksum")
 			}
 		}
 	}
 	seen := map[string]bool{}
 	for _, c := range p.Charts {
 		if seen[c.Release] || !labelRE.MatchString(c.Release) || !labelRE.MatchString(c.Namespace) || !strings.HasPrefix(c.URL, "https://") || !validSHA(c.SHA256) || !regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(c.Version) {
-			return p, fmt.Errorf("invalid chart pin: %s", c.Release)
+			return p, fmt.Errorf("invalid pinned chart configuration: %s", c.Release)
 		}
 		seen[c.Release] = true
 	}
@@ -90,7 +90,7 @@ func validSHA(s string) bool {
 // Verify requires data to match a valid, pinned SHA-256 checksum.
 func Verify(data []byte, expected string) error {
 	if !validSHA(expected) {
-		return errors.New("invalid SHA-256 pin")
+		return errors.New("invalid pinned SHA-256 checksum")
 	}
 	sum := sha256.Sum256(data)
 	if !strings.EqualFold(hex.EncodeToString(sum[:]), expected) {
@@ -157,7 +157,7 @@ type Downloader interface {
 // HTTPDownloader uses the supplied client, or a default client with a download timeout.
 type HTTPDownloader struct{ Client *http.Client }
 
-// Get requires HTTPS, bounds the response size, and verifies bytes before returning them.
+// Get requires HTTPS, limits the response size, and verifies bytes before returning them.
 func (h HTTPDownloader) Get(ctx context.Context, url, sum string) ([]byte, error) {
 	if !strings.HasPrefix(url, "https://") {
 		return nil, errors.New("downloads require HTTPS")
@@ -169,7 +169,7 @@ func (h HTTPDownloader) Get(ctx context.Context, url, sum string) ([]byte, error
 	copyClient := *client
 	previous := client.CheckRedirect
 
-	// Never accept an HTTPS -> HTTP redirect, including for release assets.
+	// Never accept a redirect from HTTPS to HTTP, including for release assets.
 	copyClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if req.URL.Scheme != "https" {
 			return errors.New("insecure download redirect")
@@ -220,7 +220,7 @@ func helmBinary(archive []byte, arch string) ([]byte, error) {
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
-			return nil, errors.New("Helm archive does not contain expected binary")
+			return nil, errors.New("Helm archive does not contain the expected binary")
 		}
 		if err != nil {
 			return nil, err
@@ -244,7 +244,7 @@ func (p Pins) K3sURL(arch string) string {
 	return "https://github.com/k3s-io/k3s/releases/download/" + p.K3s + "/" + name
 }
 
-// CheckAK3SUpgrade prevents accidentally applying an older release's chart pins.
+// CheckAK3SUpgrade prevents accidentally applying an older release's chart versions.
 // Development builds have no ordered release version and are intended for testing.
 func CheckAK3SUpgrade(current, target string) error {
 	re := regexp.MustCompile(`^v([0-9]+)\.([0-9]+)\.([0-9]+)$`)
@@ -259,7 +259,7 @@ func CheckAK3SUpgrade(current, target string) error {
 			return errors.New("invalid AK3S release version")
 		}
 		if y < x {
-			return errors.New("AK3S release downgrade refused; use a compatible backup/restore procedure")
+			return errors.New("AK3S release downgrade refused; use a compatible backup and restore procedure")
 		}
 		if y > x {
 			return nil

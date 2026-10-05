@@ -43,7 +43,8 @@ server:
             ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
           bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
 
-        # Proxy via the API server to verify TLS against the cluster CA.
+        # Use the API server as a proxy to verify TLS against the cluster
+        # certificate authority (CA).
         - job_name: kubernetes-kubelet
           scheme: https
           kubernetes_sd_configs:
@@ -76,8 +77,8 @@ server:
             - source_labels: [__meta_kubernetes_node_name]
               target_label: node
 
-        # Opt-in metrics through Service annotations. Filter by the declared
-        # port before scraping to avoid scraping DNS or duplicate endpoints.
+        # Collect metrics when Service annotations request it. Filter by the
+        # declared port to avoid scraping DNS or duplicate endpoints.
         - job_name: kubernetes-services
           kubernetes_sd_configs:
             - role: endpoints

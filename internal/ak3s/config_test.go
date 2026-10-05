@@ -25,7 +25,7 @@ func testPins(t *testing.T) Pins {
 	return p
 }
 
-// TestSparseDefaults checks that sparse overrides preserve defaults and platform installs require an email.
+// TestSparseDefaults checks that omitted settings keep their defaults and platform installs require an email.
 func TestSparseDefaults(t *testing.T) {
 	c, err := LoadConfig([]byte("acme_email: ops@example.com\nnode:\n  ip: 10.0.0.2\nmetrics_retention: 14d\n"))
 	if err != nil {

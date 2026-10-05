@@ -40,7 +40,7 @@ func helmArchive(t *testing.T, name string, kind byte) []byte {
 	return b.Bytes()
 }
 
-// TestChecksumArchiveAndPins checks checksum pins, safe Helm archive handling and release asset selection.
+// TestChecksumArchiveAndPins checks pinned checksums, safe Helm archive handling and release asset selection.
 func TestChecksumArchiveAndPins(t *testing.T) {
 	data := []byte("verified")
 	if err := Verify(data, checksum(data)); err != nil {
@@ -129,7 +129,7 @@ func TestPrepareUsesRealRenderingPathAndIsolatedWorkspace(t *testing.T) {
 			n := NativePreparer{Downloads: downloadFunc(func(_ context.Context, url, sum string) ([]byte, error) {
 				downloads++
 				if !validSHA(sum) {
-					t.Fatal("download without pin")
+					t.Fatal("download without a pinned checksum")
 				}
 				if strings.Contains(url, "get.helm.sh") {
 					return helmArchive(t, "linux-amd64/helm", tar.TypeReg), nil
@@ -158,17 +158,17 @@ func TestPrepareUsesRealRenderingPathAndIsolatedWorkspace(t *testing.T) {
 				if cmd.Args[0] == "upgrade" {
 					serverDryRuns++
 					if !strings.Contains(strings.Join(cmd.Args, " "), "--dry-run=server") {
-						t.Fatal("preflight performed a real upgrade")
+						t.Fatal("validation performed a real upgrade")
 					}
 				}
 				for _, env := range cmd.Env {
 					if strings.HasPrefix(env, "HELM_") && !strings.Contains(env, dir) {
-						t.Fatal("ambient Helm state used")
+						t.Fatal("inherited Helm state used")
 					}
 				}
 			}
 			if existing && serverDryRuns != 1 || !existing && serverDryRuns != 0 {
-				t.Fatal("wrong live validation path")
+				t.Fatal("wrong server validation path")
 			}
 			b.Close()
 			if _, err := os.Stat(dir); !os.IsNotExist(err) {

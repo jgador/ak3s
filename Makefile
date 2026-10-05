@@ -6,7 +6,7 @@ VERSION ?= dev
 # := evaluates this command once when Make reads the file.
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
-# Strip symbol/debug tables (-s -w) and embed version/commit metadata (-X).
+# Remove symbol and debug tables (-s -w) and embed the version and commit (-X).
 LDFLAGS = -s -w -X github.com/jgador/ak3s/internal/ak3s.Version=$(VERSION) -X github.com/jgador/ak3s/internal/ak3s.Commit=$(COMMIT)
 
 # These names are tasks, so run them even if a file has the same name.

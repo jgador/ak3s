@@ -161,7 +161,7 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 	}
 
 	// Use Helm's own server dry-run for installed releases. No hooks are executed,
-	// no releases are saved, and output is discarded rather than leaking Secrets.
+	// no releases are saved, and output is discarded to protect Secrets.
 	for _, chart := range p.Pins.Charts {
 		if _, exists := b.Releases[chart.Namespace+"/"+chart.Release]; !exists {
 			continue
@@ -175,7 +175,7 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 	return b, nil
 }
 
-// helmUpgradeArgs makes supplied values authoritative and enables per-release rollback.
+// helmUpgradeArgs replaces previous values and enables rollback for each release.
 func helmUpgradeArgs(chart Chart, b *Bundle) []string {
 	args := []string{"upgrade", "--install", chart.Release, b.ChartPath(chart), "--namespace", chart.Namespace, "--create-namespace", "--kubeconfig", KubeconfigPath, "--values", b.ValuesPath(chart), "--reset-values", "--atomic", "--wait", "--timeout", "10m"}
 	if chart.SkipCRDs {

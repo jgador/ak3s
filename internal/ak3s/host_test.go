@@ -42,7 +42,7 @@ func put(t *testing.T, r rootedReader, p string, data []byte) {
 	}
 }
 
-// TestInspectFreshAndUnownedNeverExecuted checks fresh host discovery and ensures unowned binaries are never executed.
+// TestInspectFreshAndUnownedNeverExecuted checks fresh host discovery and ensures binaries from unmanaged installations are never executed.
 func TestInspectFreshAndUnownedNeverExecuted(t *testing.T) {
 	r := fixtureHost(t)
 	runner := runFunc(func(context.Context, Command) ([]byte, error) { t.Fatal("unexpected command"); return nil, nil })
@@ -60,7 +60,7 @@ func TestInspectFreshAndUnownedNeverExecuted(t *testing.T) {
 	}
 }
 
-// TestInspectExistingAndFailClosed checks managed host discovery, drop-in blockers and rejection of corrupt state.
+// TestInspectExistingAndFailClosed checks managed host discovery, rejection of drop-in configuration and rejection of corrupt state.
 func TestInspectExistingAndFailClosed(t *testing.T) {
 	r := fixtureHost(t)
 	c := testConfig(t)
@@ -194,7 +194,7 @@ func TestSnapshotRaceDetection(t *testing.T) {
 	}
 }
 
-// TestUnsupportedDistributionAndEnvironment checks that old distributions and legacy service settings become blockers.
+// TestUnsupportedDistributionAndEnvironment checks that old distributions and legacy service settings fail host checks.
 func TestUnsupportedDistributionAndEnvironment(t *testing.T) {
 	r := fixtureHost(t)
 	put(t, r, "/etc/os-release", []byte("ID=ubuntu\nVERSION_ID=22.04\n"))

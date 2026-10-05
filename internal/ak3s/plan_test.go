@@ -97,7 +97,7 @@ func TestOwnershipIdentityAndUpgradeGuards(t *testing.T) {
 	}
 }
 
-// TestHostBlockersAndInterruptedRestart checks prerequisite blockers, restart recovery and checkpoint encoding.
+// TestHostBlockersAndInterruptedRestart checks failed prerequisites, restart recovery and checkpoint encoding.
 func TestHostBlockersAndInterruptedRestart(t *testing.T) {
 	c := testConfig(t)
 	s := freshSnapshot()

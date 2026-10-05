@@ -11,7 +11,7 @@ import (
 )
 
 // TestPinnedCharts downloads the release-pinned Helm binary and chart archives,
-// verifies their checksums, and runs real Helm schema/template validation. It
+// verifies their checksums, and runs real Helm schema and template validation. It
 // needs outbound HTTPS but no root, Docker, systemd, or cluster.
 func TestPinnedCharts(t *testing.T) {
 	c := testConfig(t)
