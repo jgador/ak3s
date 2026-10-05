@@ -11,6 +11,7 @@ LDFLAGS = -s -w -X github.com/jgador/ak3s/internal/ak3s.Version=$(VERSION) -X gi
 
 # These names are tasks, so run them even if a file has the same name.
 .PHONY: build test verify release secrets-setup secrets-scan secrets-staged secrets-history test-secrets
+.PHONY: port-forward port-forward-status port-forward-stop test-port-forward
 
 # Build bin/ak3s for the current OS and architecture without C bindings.
 build:
@@ -47,6 +48,23 @@ secrets-history:
 
 test-secrets:
 	bash scripts/check-secrets.test.sh
+
+# Start all four local UIs in the background; DASHBOARD=0 skips the mockup.
+port-forward:
+ifeq ($(DASHBOARD),0)
+	bash scripts/port-forward.sh start --no-dashboard
+else
+	bash scripts/port-forward.sh start
+endif
+
+port-forward-status:
+	bash scripts/port-forward.sh status
+
+port-forward-stop:
+	bash scripts/port-forward.sh stop
+
+test-port-forward:
+	bash scripts/port-forward.test.sh
 
 # Cross-compile static Linux binaries for amd64 and arm64 into dist/.
 release:

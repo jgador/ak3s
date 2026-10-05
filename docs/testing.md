@@ -18,6 +18,16 @@ For local credential checks, follow [secret scanning](secret-scanning.md).
 Gitleaks 8.30.1 or newer 8.x. `make secrets-scan` checks the index and working
 files; `make secrets-history` checks the complete history available locally.
 
+`make test-port-forward` tests the background UI helper with simulated K3s and
+dashboard commands and real loopback sockets. It needs Python 3.9+, curl, and the
+Linux tools listed in the [access guide](operations.md#start-all-uis-for-local-testing),
+with ports 5173, 8080, 8428, and 9428 free. Tests cover repeated starts and stops,
+dead processes, startup failures and timeouts, interrupted startup, stale process
+records, occupied ports, and concurrent commands. An additional check runs the
+real Vite dashboard when Node.js and its dependencies are installed.
+The tests use no cluster or credentials. Validate
+actual service access and Windows-to-WSL forwarding on a running test cluster.
+
 ## Integration checks
 
 Validate real pinned downloads and Helm rendering without a cluster:

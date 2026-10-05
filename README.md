@@ -94,6 +94,12 @@ cluster summaries, configuration, and upgrades, with links to the existing
 Kubernetes and observability tools. Run it with `cd dashboard`, `npm ci`, and
 `npm run dev`. It uses sample data and needs no cluster.
 
+For a local AK3S test cluster, `make port-forward` starts the mockup and all three
+tool port-forwards in the background, with localhost URLs you can open from
+Windows through WSL. Install the dashboard dependencies first. Use
+`make port-forward-status` to check them and `make port-forward-stop` when finished.
+See [local UI access](docs/operations.md#start-all-uis-for-local-testing).
+
 For a fresh local WSL installation test, invoke `$clean-slate` from this repository
 to use the [AK3S cleanup skill](.agents/skills/clean-slate/SKILL.md). It removes
 verified cluster data and AK3S configuration while preserving source and shared

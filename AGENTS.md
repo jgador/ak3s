@@ -31,14 +31,6 @@ Use `gofmt` and tabs for Go, two-space indentation for YAML and Bash, and tabs f
 
 Use Go's `testing` package, `Test…` names, and `Fuzz…` names for fuzz tests. Test failures, interrupted operations, and repeated runs using simulated host and process dependencies. Normal tests need no root or cluster. Coverage is reported without an enforced minimum. Follow [runtime testing](docs/runtime-testing.md) on disposable environments for installation changes; distinguish automated checks from live validation.
 
-## Commit & Pull Request Guidelines
-
-Use Conventional Commits: `docs: clarify configuration`, `fix: preserve node identity`, or `chore: update hooks`. Keep subjects imperative and include a `Validation:` paragraph. Codex-assisted commits end with:
-
-`Co-authored-by: codex <242516109+Codex@users.noreply.github.com>`
-
-Pull requests should explain the problem, resulting behavior, validation, and material limitations. Link relevant issues.
-
 ## Security, Configuration & Agent Instructions
 
 Keep credentials and rendered secrets private. Use fictional examples. Preserve ownership, identity, token, checksum, and upgrade checks. Store operator overrides outside tracked defaults.

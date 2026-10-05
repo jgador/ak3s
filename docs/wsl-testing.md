@@ -206,7 +206,32 @@ printf '%s\n' "$AK3S_TEST_ADDRESS"
 
 This only looks up a route; it sends no traffic to the example address. Recompute it after every WSL restart. The runtime guide uses `curl --resolve` so neither public DNS nor a hosts-file edit is needed. The demo's `hello.test` hostname selects its ingress rule and certificate; it is separate from the node name. Keep this check on the WSL IP because K3s ServiceLB routes ingress through host-port rules, which localhost forwarding may not expose as a listening socket.
 
-For Headlamp and the metrics and log interfaces, keep their port-forward commands in separate test terminals. In Windows, try `http://localhost:8080`, `http://localhost:8428/vmui/`, and `http://localhost:9428/select/vmui/`. These test Windows-to-WSL access in addition to the Linux checks. If `localhost` selects IPv6 and fails, try `127.0.0.1` instead. If localhost forwarding is unavailable, run the curl checks inside the test environment first and follow [WSL networking guidance](https://learn.microsoft.com/en-us/windows/wsl/networking). Do not use `--address 0.0.0.0` to make private services reachable.
+For background access from a local checkout, stop any manual port-forwards from
+the runtime checklist and run:
+
+```bash
+npm --prefix dashboard ci # once; requires Node.js 22.12+ and npm
+make port-forward        # starts all four UIs and returns to the shell
+make port-forward-status
+# When finished:
+make port-forward-stop
+```
+
+The [access guide](operations.md#start-all-uis-for-local-testing) covers
+prerequisites, logs, and the Headlamp login token. Use
+`make port-forward DASHBOARD=0` to skip the mockup and its Node.js requirement.
+Without a checkout, use the manual port-forwards in separate terminals.
+
+In Windows, open `http://127.0.0.1:5173` for the AK3S mockup,
+`http://127.0.0.1:8080` for Headlamp, `http://127.0.0.1:8428/vmui/` for metrics,
+and `http://127.0.0.1:9428/select/vmui/` for logs. The mockup still shows sample
+data; the other tools connect to the test cluster. These requests test
+Windows-to-WSL access in addition to the Linux checks. With
+`localhostForwarding=true`, no SSH tunnel is needed for this local setup.
+`localhost` also works if it resolves to IPv4. If localhost forwarding is
+unavailable, run the curl checks inside the test environment first and follow
+[WSL networking guidance](https://learn.microsoft.com/en-us/windows/wsl/networking).
+Do not use `--address 0.0.0.0` to make private services reachable.
 
 ### Test a distribution stop and start
 

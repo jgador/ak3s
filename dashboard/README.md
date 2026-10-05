@@ -20,6 +20,15 @@ npm run dev
 
 Open `http://127.0.0.1:5173`. The development server binds to loopback. No cluster, Go build, credentials, or environment file is needed.
 
+To browse all four UIs with a local AK3S test cluster, run `make port-forward`
+from the repository root after installing the dashboard dependencies. It starts
+this development server and the Headlamp, VictoriaMetrics, and VictoriaLogs
+port-forwards in the background, then returns to your shell. Use
+`make port-forward-status` and `make port-forward-stop` to manage them. Stop any
+existing `npm run dev` instance first so port 5173 is free. See the
+[access guide](../docs/operations.md#start-all-uis-for-local-testing) for Windows
+and WSL access. The dashboard continues to use fictional data.
+
 ```bash
 npm run check   # strict TypeScript checks
 npm run build   # type-check and build static files into dist/
