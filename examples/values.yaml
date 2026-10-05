@@ -1,7 +1,7 @@
 # Only your differences from `ak3s config --defaults` belong here.
 acme_email: operator@example.com
 
-# Replace with your VM IPv4 or API DNS name.
+# Replace with your VPS IPv4 or API DNS name.
 api_endpoint: 192.0.2.10
 
 # metrics_retention: 14d

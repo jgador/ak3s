@@ -1,0 +1,126 @@
+# Local rehearsal only. This issuer creates a self-signed test certificate.
+# Use app.yaml and a public hostname for Let's Encrypt checks on a VPS.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hello-data
+  namespace: demo
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+  namespace: demo
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      initContainers:
+        - name: prepare-site
+          image: busybox:1.37.0
+          command: [sh, -c]
+          args:
+            - |
+              if [ ! -f /site/index.html ]; then
+                printf 'ak3s rehearsal: persistent storage is working\n' > /site/index.html
+              fi
+          volumeMounts:
+            - name: site
+              mountPath: /site
+      containers:
+        - name: hello
+          image: nginx:1.28.0-alpine
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: site
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: site
+          persistentVolumeClaim:
+            claimName: hello-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+  namespace: demo
+spec:
+  selector:
+    app: hello
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: local-selfsigned
+  namespace: demo
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: hello-local
+  namespace: demo
+spec:
+  secretName: hello-local-tls
+  dnsNames: [hello.test]
+  issuerRef:
+    name: local-selfsigned
+    kind: Issuer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello-local
+  namespace: demo
+  annotations:
+    nginx.org/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [hello.test]
+      secretName: hello-local-tls
+  rules:
+    - host: hello.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello
+                port:
+                  number: 80

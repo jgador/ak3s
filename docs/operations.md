@@ -1,6 +1,6 @@
 # Operations
 
-Run AK3S on the control-plane VM. Commands use its local K3s kubeconfig at `/etc/rancher/k3s/k3s.yaml`.
+Run AK3S on the control-plane VPS (or inside the WSL2 rehearsal distro). Commands use its local K3s kubeconfig at `/etc/rancher/k3s/k3s.yaml`.
 
 ## Access
 
@@ -48,7 +48,7 @@ Back up these off-host:
 - Application volumes, normally under `/var/lib/rancher/k3s/storage/`.
 - Overrides, K3s configuration, `/etc/rancher/k3s/ak3s-managed`, and `/var/lib/ak3s/state.json`.
 
-Stop K3s for a consistent SQLite backup. For etcd, use `sudo k3s etcd-snapshot save`; snapshots exclude application volumes. Test the pinned K3s version's restore procedure on a separate VM.
+Stop K3s for a consistent SQLite backup. For etcd, use `sudo k3s etcd-snapshot save`; snapshots exclude application volumes. Test the pinned K3s version's restore procedure on a separate disposable server. The [WSL2 guide](wsl-testing.md#back-up-and-restore-the-rehearsal) includes a local whole-distro recovery exercise; use a separate VPS to validate your production backup method.
 
 ## Troubleshooting
 

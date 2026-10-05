@@ -40,4 +40,4 @@ Mappings merge; lists replace defaults. Omit keys to inherit defaults. Unknown k
 
 For a new etcd cluster, use `node.datastore: etcd` and an odd `node.server_count` of at least `3`. Run the same AK3S release locally on each server. Joining servers need a reachable `api_endpoint`, `node.join: true`, and `node.token_file` pointing to a private copy of the first server's `/var/lib/rancher/k3s/server/token` (mode `0600`).
 
-Use `platform: false` on additional servers so one server manages shared add-ons. Configure the [private network and API endpoint](hetzner.md#redundant-control-plane) first. AK3S refuses implicit datastore, node identity, and token changes.
+Use `platform: false` on additional servers so one server manages shared add-ons. Configure the [private network and API endpoint](vps.md#redundant-control-plane) first. AK3S refuses implicit datastore, node identity, and token changes.
