@@ -1,6 +1,6 @@
 # Runtime testing on WSL2 or a VPS
 
-Run this checklist after a real AK3S installation in the [WSL2 test environment](wsl-testing.md) or on a disposable [VPS](vps.md). Use the same AK3S release and platform defaults in both. Run all Bash commands on the server being tested; they change the local cluster and deploy a disposable demo.
+Run this checklist after a real AK3S installation in the [WSL2 test environment](wsl-testing.md) or on a disposable [VPS](vps.md). It applies to both published releases and local builds before release. When comparing WSL2 and VPS results, use the same AK3S release or source revision and platform defaults in both. Run all Bash commands on the server being tested; they change the local cluster and deploy a disposable demo.
 
 Use the local kubeconfig (Kubernetes client configuration) explicitly so a workstation context cannot select another cluster. Define this helper again in each testing terminal:
 
@@ -42,7 +42,7 @@ Inspect `k get pods -A` again. Investigate missing platform workloads, pods in P
 
 ## 2. Check ingress, cert-manager, and persistent storage
 
-Download and review the [local demo](../examples/local-app.yaml) from the same release you installed. Use a fresh `demo` namespace; if it already holds another workload, use a new disposable server rather than overwriting it. For a published tag that includes the example:
+Review the [local demo](../examples/local-app.yaml) from the same release or checkout you installed. Use a fresh `demo` namespace; if it already holds another workload, use a new disposable server rather than overwriting it. For a published tag that includes the example:
 
 ```bash
 mkdir -p ~/ak3s-test
@@ -186,7 +186,7 @@ Use a disposable test environment or fresh VPS for intentional failures. Keep a 
 
 To test interrupted-run recovery, run `sudo ak3s apply`, press Ctrl+C during reconciliation, then rerun `sudo ak3s apply --dry-run` and `sudo ak3s apply`. If the command finished before interruption, repeat the test. Confirm readiness and the storage marker after recovery. To test interruption of a **first install**, use another clean disposable environment and interrupt `sudo ak3s install` there; rerun it with the same configuration. Do not delete ownership or state files to bypass a failure. Individual Helm releases can roll back; there is no whole-platform rollback.
 
-For an actual upgrade test, start a fresh test environment or server on the published version you intend to upgrade from. Run this checklist and back up. Install the specific newer AK3S CLI using the release installer, then:
+For an actual upgrade test, start a fresh test environment or server on the published version you intend to upgrade from. Run this checklist and back up. Install the specific newer AK3S CLI using the release installer, or build and install the local source using [WSL2 path B](wsl-testing.md#b-test-local-source-before-release) on the same test environment. Replacing the CLI alone does not upgrade the cluster. Then:
 
 ```bash
 ak3s version
@@ -195,7 +195,7 @@ sudo ak3s upgrade
 sudo ak3s status
 ```
 
-Check that the intended pinned component versions changed, then repeat this checklist and backup restoration. Running `upgrade` with the same release only tests command behavior; it does not validate a version transition. AK3S refuses downgrades and skipped Kubernetes minor versions. For redundant control planes, upgrade one server at a time and verify etcd quorum (a majority of servers available); a single WSL distribution cannot prove those properties.
+Check that the intended pinned component versions changed, then repeat this checklist and backup restoration. Running `upgrade` with unchanged pinned component versions only tests command behavior; it does not validate a component version transition. If no previous release exists, record the upgrade transition as untested and run the first-install and recovery checks. AK3S refuses downgrades and skipped Kubernetes minor versions. For redundant control planes, upgrade one server at a time and verify etcd quorum (a majority of servers available); a single WSL distribution cannot prove those properties.
 
 ## Public VPS checks
 

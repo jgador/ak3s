@@ -6,7 +6,7 @@ Use this guide to try AK3S inside a disposable Ubuntu environment in Windows Sub
 
 | Check | WSL2 tests | Repeat on the VPS |
 | --- | --- | --- |
-| Installer, pinned versions, dry-run, install, reruns | Same AK3S release and commands | Yes, with VPS configuration |
+| CLI, pinned versions, dry-run, install, reruns | Published release or local build; published path also checks the release installer | Yes, with VPS configuration |
 | Kubernetes, ingress, cert-manager, storage, dashboard, metrics and logs | Real workloads and local HTTPS | Same runtime checklist |
 | Service recovery, interruption, backup and restore, upgrades | Disposable distribution tests | VPS reboot and production backup method |
 | Public DNS, external API access, provider firewall, Let's Encrypt | Not exercised by local test certificates | Required from an external client |
@@ -95,7 +95,13 @@ sudo ss -lntup
 
 If a module fails to load, cgroup controllers are missing, or systemd or swap checks fail, resolve the problem before installing. Update WSL and restart it; see [troubleshooting](#troubleshooting) for kernel mismatches. Do not bypass AK3S host checks or substitute another Kubernetes distribution to make the tests pass.
 
-## 3. Install the same AK3S release as the VPS
+## 3. Choose a published release or local build
+
+Choose one of the following paths inside **AK3S-Lab**. Both continue with the same configuration and runtime checks below. If no release exists yet, use the local build path.
+
+For separate first-install tests of both versions, use a fresh lab for each run, or restore a clean backup made before installing K3s. Installing a different CLI over an existing cluster tests a rerun or upgrade rather than a first installation. Run only one test cluster at a time to avoid port conflicts. Keep the published version's results separate from the local build's results.
+
+### A. Test a published release
 
 Run in **AK3S-Lab**, from its Linux home directory. Replace `vX.Y.Z` with a published [release](https://github.com/jgador/ak3s/releases):
 
@@ -110,7 +116,51 @@ sudo bash install.sh "$VERSION"
 ak3s version
 ```
 
-This is the same checksum-verifying installer used on a VPS. If testing unpublished source instead, clone this repository into the test environment's Linux filesystem, follow [development checks](testing.md), build it inside the test environment, and use `sudo install -m 0755 bin/ak3s /usr/local/bin/ak3s`. Record that it is a development build; this does not test the published release installer. Use the checkout's `examples/local-app.yaml` for the runtime demo if it is not available in the published tag yet.
+This is the same checksum-verifying installer used on a VPS. Confirm `ak3s version` matches the chosen release. Use the local demo from that same tag in the runtime checklist.
+
+### B. Test local source before release
+
+Build the exact source you intend to release, including any uncommitted changes you want to test. Copy your AK3S checkout into **AK3S-Lab**'s Linux filesystem, for example `~/ak3s`, including those changes. A fresh clone does not include uncommitted changes from another checkout. Avoid building under `/mnt/c` or another Windows mount.
+
+Install Git, Make, and a C compiler inside **AK3S-Lab**. The compiler is used by the race tests in `make verify`:
+
+```bash
+sudo apt-get install -y git build-essential
+```
+
+If you do not have a local checkout to copy, clone the repository inside **AK3S-Lab**, then select the branch or commit you intend to release:
+
+```bash
+cd ~
+git clone https://github.com/jgador/ak3s.git
+cd ak3s
+# Switch to the intended branch or commit before building.
+```
+
+Install **Go 1.25+** inside the lab using the [Go installation instructions](https://go.dev/doc/install); check it with `go version`. Ubuntu's default Go package may be older than the required version.
+
+From the checkout's root directory, run:
+
+```bash
+go version
+git rev-parse HEAD
+git status --short
+go mod download
+make verify
+go test -tags integration -run TestPinnedCharts -v ./internal/ak3s
+make build
+sudo install -m 0755 bin/ak3s /usr/local/bin/ak3s
+ak3s version
+export AK3S_LOCAL_APP_FILE="$PWD/examples/local-app.yaml"
+```
+
+Stop if a check fails. `make verify` runs tests with race detection, `go vet`, formatting checks, and installer syntax checks. The integration check verifies pinned downloads and Helm rendering over outbound HTTPS. Neither command installs a cluster. Installing `bin/ak3s` places the CLI on the lab's path; the cluster installation comes below.
+
+The default build reports version `dev` and a commit identifier. Record the full commit, whether the checkout has uncommitted changes, and the test results. The embedded commit identifier does not identify uncommitted changes; preserve the tested changes before publishing. Rebuild and repeat affected checks after source changes. Use the demo from this checkout when following the runtime checklist; define `AK3S_LOCAL_APP_FILE` again from the checkout root in any new testing terminal.
+
+This path tests the local CLI and cluster behavior. For release artifact and checksum generation, also follow [development checks](testing.md). It does not exercise the published release download and checksum verification; repeat path A after publishing to validate the release installer.
+
+### Configure and install the cluster (both paths)
 
 Create the test configuration:
 
@@ -218,7 +268,7 @@ Remove private test exports when no longer needed. Restore the original `%UserPr
 
 ## Move to the VPS
 
-Create a fresh VPS that meets the [host requirements](vps.md#host-requirements). Install the **same tested AK3S release**, with a real contact email and VPS API endpoint. Do not copy the test environment's datastore, token, kubeconfig, self-signed TLS secret, or WSL configuration into the VPS.
+Create a fresh VPS that meets the [host requirements](vps.md#host-requirements). Install the **same tested AK3S release**, with a real contact email and VPS API endpoint. If you tested local source, publish the tested source and repeat the published-release path first. Do not copy the test environment's datastore, token, kubeconfig, self-signed TLS secret, or WSL configuration into the VPS.
 
 Repeat the runtime checklist there, including its [public VPS checks](runtime-testing.md#public-vps-checks). Confirm external DNS, API access restrictions, HTTP and HTTPS routing, staging then production certificate issuance, reboot recovery, and restoration using the real backup destination. Match the workload and retention settings you intend to run; successful tests with 4 GB RAM do not establish the resources needed for a production deployment.
 

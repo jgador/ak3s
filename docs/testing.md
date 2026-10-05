@@ -1,6 +1,6 @@
 # Testing and releases
 
-To try a full installation before deploying to a VPS, start with the [WSL2 testing guide](wsl-testing.md). It prepares a disposable Linux environment and runs the same [runtime checklist](runtime-testing.md) used on a [VPS](vps.md). The development tests below do not install a cluster.
+To try a full installation before deploying to a VPS, start with the [WSL2 testing guide](wsl-testing.md). It provides separate paths for [a published release](wsl-testing.md#a-test-a-published-release) and [local source before release](wsl-testing.md#b-test-local-source-before-release). Both use a disposable Linux environment and run the same [runtime checklist](runtime-testing.md) used on a [VPS](vps.md). The development tests below do not install a cluster.
 
 Use Go 1.25+, Make, Bash, and standard Linux utilities:
 
