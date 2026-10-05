@@ -1,33 +1,21 @@
-# Existing Hetzner VM
+# VM setup
 
-AK3S installs K3s and its platform components onto your existing Hetzner VM. Run installation inside the VM as root, using SSH from a workstation if desired. The CLI itself runs locally on the VM. It does not create or delete Hetzner resources or require an API token.
-
-## Host requirements
-
-Use Ubuntu 24.04 or Debian 12+, systemd, x86_64 or arm64, and swap disabled. Start with at least 2 vCPUs, 4 GB RAM, and 40 GB SSD for the platform and small workloads. The sparse settings example uses the VM's public IPv4 address.
+Use an existing Hetzner VM with Ubuntu 24.04+ or Debian 12+, systemd, disabled swap, and amd64/arm64. Start with 2 vCPUs, 4 GB RAM, and 40 GB SSD. AK3S runs inside the VM and does not provision cloud resources.
 
 ## Firewall requirements
 
-For a single server, allow these inbound connections in the Hetzner firewall:
-
-| Protocol and port | Source | Purpose |
+| Inbound port | Allowed source | Purpose |
 | --- | --- | --- |
-| TCP 22 | Your administrative IPv4 address or restricted CIDR | SSH |
-| TCP 6443 | Your administrative IPv4 address or restricted CIDR | Kubernetes API |
-| TCP 80 and 443 | Any IPv4 address | Application ingress and certificate issuance |
+| TCP 22 | Your administrative addresses | SSH |
+| TCP 6443 | Your administrative addresses | Kubernetes API |
+| TCP 80, 443 | Application clients / internet | Ingress and HTTPS issuance |
 
-For one administrative address, use its `/32` CIDR. Keep outbound connectivity available for package downloads, container images, and Let's Encrypt. Permit pod/service forwarding in any host firewall you enable. Leave ports 80 and 443 free for K3s ServiceLB.
+Allow outbound downloads and permit pod/service forwarding in any host firewall. Leave ports 80/443 free. Headlamp, metrics, and logs need no public ports.
 
-Headlamp, metrics, and logs use private ClusterIP services by default and need no additional public ports. Use Kubernetes port-forwarding from your workstation as described in [operations](operations.md). If port-forwarding runs inside the VM, reach it through an SSH tunnel or configure the optional HTTPS Headlamp ingress.
+Follow the [installation steps](../README.md#install). Point application DNS A records at the VM's public IPv4; remove stale AAAA records if IPv6 is unavailable.
 
-## Install AK3S
+## Redundant control plane
 
-Follow the [CLI installation steps](../README.md#install). Download an explicit release, create `/etc/ak3s/values.yaml` with your `acme_email` and `api_endpoint`, then run `sudo ak3s install --dry-run` and `sudo ak3s install`. Set `node.ip` explicitly when automatic interface selection is unsuitable. No Hetzner API token or language runtime is needed.
+Connect servers through a trusted private network or encrypted VPN. Allow only cluster nodes to reach TCP 6443/10250 and UDP 8472; allow etcd servers to reach TCP 2379/2380. Keep kubelet, VXLAN, and etcd ports private.
 
-For HTTPS, point the application DNS A record at the VM's public IPv4 address. Remove stale AAAA records if IPv6 is not configured. Validate Let's Encrypt staging issuance before switching to production.
-
-## Additional nodes
-
-Create additional VMs and a Hetzner private network first. Run the CLI on each VM with the [per-node join settings](configuration.md#additional-nodes). Use `node.ip` for the private IPv4, `node.flannel_iface` when needed, and `node.external_ip` only for an address owned by that VM.
-
-Allow node-to-node traffic only on the private network using the [K3s port table](architecture.md#multi-node-networking-and-control-plane). The API endpoint must remain reachable from every node and your administration clients. Use one SQLite server or an odd number of at least three etcd servers, plus optional agents. Expanding a SQLite cluster into etcd requires an explicit migration; ordinary install/apply refuses the topology change.
+Set `node.ip` to each server's private IPv4 and `node.flannel_iface` if detection selects the wrong interface. Provide a reachable API DNS name backed by your own TCP 6443 load balancer or virtual IP. See [configuration](configuration.md#control-plane-redundancy).

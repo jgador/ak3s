@@ -5,3 +5,5 @@
 /cluster.yaml
 /inventory.yaml
 /.ak3s/
+/.tmp/*
+!/.tmp/.gitkeep
