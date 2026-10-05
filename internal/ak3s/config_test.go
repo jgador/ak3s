@@ -24,6 +24,8 @@ func testPins(t *testing.T) Pins {
 	}
 	return p
 }
+
+// TestSparseDefaults checks that sparse overrides preserve defaults and platform installs require an email.
 func TestSparseDefaults(t *testing.T) {
 	c, err := LoadConfig([]byte("acme_email: ops@example.com\nnode:\n  ip: 10.0.0.2\nmetrics_retention: 14d\n"))
 	if err != nil {
@@ -44,6 +46,8 @@ func TestSparseDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestMergeSemanticsAndIsolation checks map merging, scalar and list replacement, and isolation from the inputs.
 func TestMergeSemanticsAndIsolation(t *testing.T) {
 	base := map[string]any{"nested": map[string]any{"enabled": true, "count": 3, "list": []any{"a", "b"}}, "other": "kept"}
 	got := Merge(base, map[string]any{"nested": map[string]any{"enabled": false, "count": 0, "list": []any{}}})
@@ -61,6 +65,8 @@ func TestMergeSemanticsAndIsolation(t *testing.T) {
 		t.Fatal("aliased default list")
 	}
 }
+
+// TestRejectInvalidConfiguration checks that malformed or unsupported settings are rejected.
 func TestRejectInvalidConfiguration(t *testing.T) {
 	cases := []string{
 		"foo: true", "node:\n  unknown: true", "node: null", "tls_sans: null", "[]", "a: b\n---\nc: d", "platform: false\nplatform: true", "node: &x {}\nhelm_values: *x", "true: 1", "api_endpoint: https://host:6443", "api_endpoint: 999.1.1.1", "api_endpoint: ::1", "tls_sans: [bad;host]", "tls_sans: host", "acme_email: invalid", "acme_environment: prod", "cluster_name: bad.name", "storage_class: /tmp/x", "metrics_retention: 0d", "logs_retention: -7d", "metrics_storage: 0Gi", "logs_storage: -1Gi", "logs_max_disk: 8Gi", "headlamp_hostname: https://example.com", "platform: nope", "node: {role: worker}", "node: {name: BAD}", "node: {ip: example.com}", "node: {external_ip: 2001:db8::1}", "node: {flannel_iface: 'eth0;touch'}", "node: {datastore: postgres}", "node: {datastore: sqlite, server_count: 3}", "node: {datastore: etcd, server_count: 2}", "node: {datastore: etcd, server_count: 4}", "node: {role: agent}", "node: {join: true}", "node: {token_file: relative}", "node: {token_file: /etc/rancher/k3s/config.yaml}", "helm_values: {typo: {enabled: true}}",
@@ -73,6 +79,8 @@ func TestRejectInvalidConfiguration(t *testing.T) {
 		})
 	}
 }
+
+// TestValidTopologies checks the supported server and agent configurations.
 func TestValidTopologies(t *testing.T) {
 	for _, s := range []string{"node: {datastore: etcd, server_count: 3}", "node: {datastore: etcd, server_count: 5, join: true, token_file: /root/token}\napi_endpoint: api.example.com", "platform: false\nnode: {role: agent, join: true, token_file: /root/token}\napi_endpoint: 10.0.0.1"} {
 		if _, err := LoadConfig([]byte(s)); err != nil {
@@ -80,6 +88,8 @@ func TestValidTopologies(t *testing.T) {
 		}
 	}
 }
+
+// TestValuesPreserveArchitecture checks generated chart settings, operator overrides and repeatable rendering.
 func TestValuesPreserveArchitecture(t *testing.T) {
 	c := testConfig(t)
 	p := testPins(t)
@@ -123,6 +133,7 @@ func TestValuesPreserveArchitecture(t *testing.T) {
 			}
 		})
 	}
+
 	// Loading the defaults again cannot inherit an earlier render's edits.
 	clean := testConfig(t)
 	a, _ := ValuesFor(p.Charts[0], clean)
@@ -131,6 +142,8 @@ func TestValuesPreserveArchitecture(t *testing.T) {
 		t.Fatal("nondeterministic values")
 	}
 }
+
+// TestK3sRendering checks role-specific K3s settings, issuer generation and basic manifest validation.
 func TestK3sRendering(t *testing.T) {
 	c := testConfig(t)
 	c.TLSSANs = []string{c.APIEndpoint, "api.example.com"}
@@ -166,6 +179,8 @@ func TestK3sRendering(t *testing.T) {
 		}
 	}
 }
+
+// FuzzLoadConfig checks that arbitrary bounded YAML input does not panic during configuration loading.
 func FuzzLoadConfig(f *testing.F) {
 	for _, s := range []string{"", "platform: false", "node: {role: agent}", "a: &a [*a]"} {
 		f.Add(s)

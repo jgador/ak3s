@@ -149,6 +149,8 @@ func CheckUpgrade(current, target string, allow bool) error {
 
 // Downloader retrieves an artifact and verifies it against the supplied checksum.
 type Downloader interface {
+
+	// Get retrieves an artifact and verifies its SHA-256 checksum before returning it.
 	Get(context.Context, string, string) ([]byte, error)
 }
 
@@ -164,9 +166,10 @@ func (h HTTPDownloader) Get(ctx context.Context, url, sum string) ([]byte, error
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Minute}
 	}
-	// Never accept an HTTPS -> HTTP redirect, including for release assets.
 	copyClient := *client
 	previous := client.CheckRedirect
+
+	// Never accept an HTTPS -> HTTP redirect, including for release assets.
 	copyClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if req.URL.Scheme != "https" {
 			return errors.New("insecure download redirect")

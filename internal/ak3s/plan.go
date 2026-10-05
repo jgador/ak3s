@@ -26,6 +26,7 @@ const (
 // State checkpoints the last attempted release and node identity across runs.
 // It is not a guarantee that every platform service is healthy.
 type State struct {
+
 	// PendingRestart stays set until service readiness has been confirmed.
 	PendingRestart bool       `json:"pending_restart"`
 	Schema         int        `json:"schema"`
@@ -33,6 +34,7 @@ type State struct {
 	K3sVersion     string     `json:"k3s_version"`
 	ClusterName    string     `json:"cluster_name"`
 	Node           NodeConfig `json:"node"`
+
 	// A hash of the join credential detects edits to a token file without exposing it.
 	TokenSHA256 string `json:"token_sha256,omitempty"`
 }
@@ -122,7 +124,6 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 			return p, errors.New("join token changed; restore the original token file before continuing")
 		}
 	}
-	// Older installations lack a checkpoint, so preserve identity from their K3s YAML.
 	var legacyToken string
 	if previous := s.Files[ConfigPath]; len(previous) > 0 {
 		var old map[string]any
@@ -138,6 +139,8 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 				return p, fmt.Errorf("unmanaged K3s setting %q; migrate it before reconciling", key)
 			}
 		}
+
+		// Older installations lack a checkpoint, so preserve identity from their K3s YAML.
 		if s.State == nil {
 			if old["node-name"] != nil && old["node-name"] != c.Node.Name {
 				return p, errors.New("preserve the existing node-name in node.name when migrating")
@@ -192,6 +195,7 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 			}
 		}
 	}
+
 	// Retry an interrupted restart even when the desired files are already on disk.
 	p.Restart = p.Restart || p.InstallBinary || (s.State != nil && s.State.PendingRestart)
 	p.Actions = append(p.Actions, Action{"record", "AK3S ownership and state", MarkerPath + "; " + StatePath})

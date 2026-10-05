@@ -13,13 +13,20 @@ import (
 
 type runFunc func(context.Context, Command) ([]byte, error)
 
+// Run delegates command execution to the test callback.
 func (f runFunc) Run(c context.Context, cmd Command) ([]byte, error) { return f(c, cmd) }
 
 type rootedReader struct{ root string }
 
-func (r rootedReader) path(p string) string                    { return filepath.Join(r.root, p) }
-func (r rootedReader) ReadFile(p string) ([]byte, error)       { return os.ReadFile(r.path(p)) }
-func (r rootedReader) Stat(p string) (fs.FileInfo, error)      { return os.Stat(r.path(p)) }
+func (r rootedReader) path(p string) string { return filepath.Join(r.root, p) }
+
+// ReadFile reads a file beneath the fixture root.
+func (r rootedReader) ReadFile(p string) ([]byte, error) { return os.ReadFile(r.path(p)) }
+
+// Stat returns file information beneath the fixture root.
+func (r rootedReader) Stat(p string) (fs.FileInfo, error) { return os.Stat(r.path(p)) }
+
+// ReadDir lists directory entries beneath the fixture root.
 func (r rootedReader) ReadDir(p string) ([]fs.DirEntry, error) { return os.ReadDir(r.path(p)) }
 func fixtureHost(t *testing.T) rootedReader {
 	t.Helper()
@@ -34,6 +41,8 @@ func put(t *testing.T, r rootedReader, p string, data []byte) {
 		t.Fatal(err)
 	}
 }
+
+// TestInspectFreshAndUnownedNeverExecuted checks fresh host discovery and ensures unowned binaries are never executed.
 func TestInspectFreshAndUnownedNeverExecuted(t *testing.T) {
 	r := fixtureHost(t)
 	runner := runFunc(func(context.Context, Command) ([]byte, error) { t.Fatal("unexpected command"); return nil, nil })
@@ -50,6 +59,8 @@ func TestInspectFreshAndUnownedNeverExecuted(t *testing.T) {
 		t.Fatal(s, err)
 	}
 }
+
+// TestInspectExistingAndFailClosed checks managed host discovery, drop-in blockers and rejection of corrupt state.
 func TestInspectExistingAndFailClosed(t *testing.T) {
 	r := fixtureHost(t)
 	c := testConfig(t)
@@ -85,6 +96,8 @@ func TestInspectExistingAndFailClosed(t *testing.T) {
 		t.Fatal("null state ignored")
 	}
 }
+
+// TestTokenPermissionAndHash checks token fingerprints, private file permissions and token validation.
 func TestTokenPermissionAndHash(t *testing.T) {
 	r := fixtureHost(t)
 	c := testConfig(t)
@@ -105,6 +118,8 @@ func TestTokenPermissionAndHash(t *testing.T) {
 		t.Fatal("empty token accepted")
 	}
 }
+
+// TestAtomicWritePermissionsSymlinksAndNoop checks private writes, unchanged-file handling and rejection of symlink or directory destinations.
 func TestAtomicWritePermissionsSymlinksAndNoop(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "state")
@@ -137,6 +152,8 @@ func TestAtomicWritePermissionsSymlinksAndNoop(t *testing.T) {
 		t.Fatal("overwrote directory")
 	}
 }
+
+// TestExecIsolationAndSecretRedaction checks child environment isolation, suppressed failure output and stdin handling.
 func TestExecIsolationAndSecretRedaction(t *testing.T) {
 	t.Setenv("KUBECONFIG", "/some/other/cluster")
 	t.Setenv("K3S_TOKEN", "private")
@@ -157,6 +174,8 @@ func TestExecIsolationAndSecretRedaction(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestSnapshotRaceDetection checks that snapshot comparison detects ownership and file changes.
 func TestSnapshotRaceDetection(t *testing.T) {
 	a := freshSnapshot()
 	b := freshSnapshot()
@@ -174,6 +193,8 @@ func TestSnapshotRaceDetection(t *testing.T) {
 		t.Fatal()
 	}
 }
+
+// TestUnsupportedDistributionAndEnvironment checks that old distributions and legacy service settings become blockers.
 func TestUnsupportedDistributionAndEnvironment(t *testing.T) {
 	r := fixtureHost(t)
 	put(t, r, "/etc/os-release", []byte("ID=ubuntu\nVERSION_ID=22.04\n"))
@@ -183,6 +204,8 @@ func TestUnsupportedDistributionAndEnvironment(t *testing.T) {
 		t.Fatal(s, err)
 	}
 }
+
+// TestServiceUnit checks role-specific startup commands and repeatable unit rendering.
 func TestServiceUnit(t *testing.T) {
 	for _, role := range []string{"server", "agent"} {
 		unit := string(serviceUnit(role))

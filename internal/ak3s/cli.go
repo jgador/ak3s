@@ -108,6 +108,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		_, err = a.Out.Write(data)
 		return err
 	}
+
 	// The default file is optional; an explicitly selected file must exist.
 	explicit := path != ""
 	if !explicit {
@@ -129,6 +130,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		_, err = a.Out.Write(data)
 		return err
 	}
+
 	// Rendering needs validated artifacts but does not inspect or change the host.
 	if command == "render" {
 		if err = c.ValidateInstall(); err != nil {
@@ -185,6 +187,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	for _, problem := range plan.Problems {
 		fmt.Fprintln(a.Out, "BLOCKED:", problem)
 	}
+
 	// Host blockers do not prevent dry-run from exercising chart rendering, but
 	// real execution must not even download assets for an unsupported host.
 	if !dry {
@@ -240,6 +243,7 @@ func (a *App) status(ctx context.Context, c Config, p Pins, s Snapshot) error {
 	if !s.Kubeconfig {
 		return errors.New("K3s kubeconfig is unavailable")
 	}
+
 	// Put kubectl's discovery cache in a disposable directory, never under ~/.kube.
 	dir, err := os.MkdirTemp("", "ak3s-status-")
 	if err != nil {

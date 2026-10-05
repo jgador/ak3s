@@ -40,6 +40,7 @@ func (h *NativeHost) Apply(ctx context.Context, p Plan, b *Bundle) error {
 		return err
 	}
 	defer unlock()
+
 	// Recheck state after acquiring the lock: do not apply a stale ownership/token plan.
 	fresh, err := h.Inspect(ctx, p.Config)
 	if err != nil {
@@ -85,6 +86,7 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 	if err = write(MarkerPath, []byte("Managed by AK3S. Configuration: "+ConfigPath+"\n"), 0600); err != nil {
 		return err
 	}
+
 	// Checkpoint identity before K3s starts, so interrupted installs retain guards.
 	if err = write(StatePath, p.StateJSON(), 0600); err != nil {
 		return err
@@ -134,6 +136,7 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 		_, err := runner.Run(ctx, Command{Name: K3sPath, Args: append([]string{"kubectl", "--kubeconfig", KubeconfigPath, "--cache-dir", filepath.Join(b.Dir, "kube-cache")}, args...), Input: input})
 		return err
 	}
+
 	// Shared add-ons require both a ready API and a ready local server node.
 	if err = waitReady(ctx, func() error { return kube(nil, "get", "--raw=/readyz", "--request-timeout=10s") }, 5*time.Minute); err != nil {
 		return err
@@ -156,6 +159,7 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 		if _, err = runner.Run(ctx, Command{Name: b.Helm, Args: helmUpgradeArgs(chart, b), Env: b.HelmEnv()}); err != nil {
 			return fmt.Errorf("reconcile %s: %w; fix the error and rerun", chart.Release, err)
 		}
+
 		// Issuers cannot be applied until cert-manager's custom resource exists.
 		if chart.Release == "cert-manager" {
 			if err = kube(nil, "wait", "--for=condition=Established", "crd/clusterissuers.cert-manager.io", "--timeout=120s"); err != nil {

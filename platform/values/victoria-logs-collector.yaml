@@ -11,9 +11,11 @@ resources:
     memory: 64Mi
   limits:
     memory: 256Mi
+
 # Collect from server nodes as well if users add control-plane taints.
 tolerations:
   - operator: Exists
+
 # The collector follows /var/log/containers symlinks into /var/log/pods.
 # Mount both paths, without a broad /var/lib mount.
 defaultVolumes:

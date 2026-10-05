@@ -1,6 +1,7 @@
 cluster_name: ak3s
 api_endpoint: 127.0.0.1
 tls_sans: []
+
 # Required when platform is enabled. There is no safe default contact address.
 acme_email: ""
 acme_environment: staging

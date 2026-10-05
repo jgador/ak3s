@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Download one released binary. Host/cluster orchestration lives entirely in Go.
+
+# Download, verify and install the vX.Y.Z release passed as the only argument.
+# AK3S_INSTALL_DIR overrides the default destination, /usr/local/bin.
 set -euo pipefail
 version="${1:-}"
 if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$#" != 1 ]]; then
@@ -20,6 +22,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 "$base/$asset" -o "$tmp/$asset"
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 "$base/checksums.txt" -o "$tmp/checksums.txt"
+
 # Accept exactly one entry for this asset; never let a checksum file name paths.
 expected=''
 while read -r sum name rest; do
@@ -32,6 +35,7 @@ done < "$tmp/checksums.txt"
 printf '%s  %s\n' "$expected" "$asset" > "$tmp/selected.sha256"
 (cd "$tmp" && sha256sum --check --status selected.sha256)
 mkdir -p "$destination"
+
 # Stage on the destination filesystem before replacing an existing CLI.
 staged="$(mktemp "$destination/.ak3s-XXXXXX")"
 trap 'rm -rf "$tmp"; rm -f "$staged"' EXIT

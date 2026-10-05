@@ -17,6 +17,7 @@ type effects struct {
 	failWrite   string
 }
 
+// Run records commands and injects the configured command failure.
 func (e *effects) Run(_ context.Context, c Command) ([]byte, error) {
 	e.commands = append(e.commands, c)
 	if strings.Contains(c.Name+" "+strings.Join(c.Args, " "), e.failCommand) && e.failCommand != "" {
@@ -46,6 +47,8 @@ func (e *effects) has(needle string) bool {
 	}
 	return false
 }
+
+// TestRealReconcileOrderAndIdempotency checks readiness gates, chart ordering and restart checkpoints across repeated applies.
 func TestRealReconcileOrderAndIdempotency(t *testing.T) {
 	c := testConfig(t)
 	p, err := BuildPlan(c, testPins(t), managedSnapshot(t, c), "apply")
@@ -92,6 +95,8 @@ func TestRealReconcileOrderAndIdempotency(t *testing.T) {
 		}
 	}
 }
+
+// TestReconcileStopsOnFailures checks that command and file write failures stop later reconciliation steps.
 func TestReconcileStopsOnFailures(t *testing.T) {
 	c := testConfig(t)
 	p, _ := BuildPlan(c, testPins(t), managedSnapshot(t, c), "apply")
@@ -120,6 +125,8 @@ func TestReconcileStopsOnFailures(t *testing.T) {
 		}
 	}
 }
+
+// TestBinaryVerifiedBeforeReplacement checks that corrupt binaries are rejected before being written or started.
 func TestBinaryVerifiedBeforeReplacement(t *testing.T) {
 	c := testConfig(t)
 	p, _ := BuildPlan(c, testPins(t), freshSnapshot(), "install")
@@ -134,6 +141,8 @@ func TestBinaryVerifiedBeforeReplacement(t *testing.T) {
 		}
 	}
 }
+
+// TestAgentReconcileDoesNotRunPlatform checks that agents verify their service without managing shared platform resources.
 func TestAgentReconcileDoesNotRunPlatform(t *testing.T) {
 	c := testConfig(t)
 	c.Platform = false
@@ -150,6 +159,8 @@ func TestAgentReconcileDoesNotRunPlatform(t *testing.T) {
 		t.Fatal("agent behavior incorrect")
 	}
 }
+
+// TestWaitReadyCancellation checks cancelled readiness waits and successful probes.
 func TestWaitReadyCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -161,6 +172,7 @@ func TestWaitReadyCancellation(t *testing.T) {
 	}
 }
 
+// TestApplyLock checks that only one reconciliation can hold the local lock at a time.
 func TestApplyLock(t *testing.T) {
 	dir := t.TempDir()
 	unlock, err := lock(dir)

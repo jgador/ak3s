@@ -27,6 +27,7 @@ charts:
     values: cert-manager.yaml
   - release: headlamp
     namespace: headlamp
+
     # Direct immutable release URL avoids relying on a chart repository index.
     chart: https://github.com/kubernetes-sigs/headlamp/releases/download/headlamp-helm-0.45.0/headlamp-0.45.0.tgz
     version: 0.45.0

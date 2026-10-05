@@ -29,6 +29,8 @@ func managedSnapshot(t *testing.T, c Config) Snapshot {
 	s.Files[StatePath] = p.StateJSON()
 	return s
 }
+
+// TestPlanInstallAndNoUnnecessaryRestart checks initial install actions and avoids restarts for unchanged nodes or platform settings.
 func TestPlanInstallAndNoUnnecessaryRestart(t *testing.T) {
 	c := testConfig(t)
 	p, err := BuildPlan(c, testPins(t), freshSnapshot(), "install")
@@ -56,6 +58,8 @@ func TestPlanInstallAndNoUnnecessaryRestart(t *testing.T) {
 		t.Fatal("platform changes must not restart K3s", err)
 	}
 }
+
+// TestOwnershipIdentityAndUpgradeGuards checks that unsafe ownership, identity, token and version changes are rejected.
 func TestOwnershipIdentityAndUpgradeGuards(t *testing.T) {
 	c := testConfig(t)
 	pins := testPins(t)
@@ -92,6 +96,8 @@ func TestOwnershipIdentityAndUpgradeGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestHostBlockersAndInterruptedRestart checks prerequisite blockers, restart recovery and checkpoint encoding.
 func TestHostBlockersAndInterruptedRestart(t *testing.T) {
 	c := testConfig(t)
 	s := freshSnapshot()
@@ -134,6 +140,8 @@ func TestHostBlockersAndInterruptedRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestLegacyTokenAndTopologyPreserved checks preservation of legacy credentials and rejects implicit identity or topology changes.
 func TestLegacyTokenAndTopologyPreserved(t *testing.T) {
 	c := testConfig(t)
 	c.Node.Name = "old-node"
@@ -165,6 +173,8 @@ func TestLegacyTokenAndTopologyPreserved(t *testing.T) {
 		t.Fatal("legacy address removed")
 	}
 }
+
+// TestVersionTransitions checks K3s version parsing and permitted upgrade paths.
 func TestVersionTransitions(t *testing.T) {
 	for _, tc := range []struct {
 		from, to  string
@@ -181,6 +191,7 @@ func TestVersionTransitions(t *testing.T) {
 	}
 }
 
+// TestAK3SReleaseDowngrades checks AK3S release ordering and development build handling.
 func TestAK3SReleaseDowngrades(t *testing.T) {
 	for _, tc := range []struct {
 		from, to string
@@ -191,6 +202,8 @@ func TestAK3SReleaseDowngrades(t *testing.T) {
 		}
 	}
 }
+
+// TestHostNameChangeAndUnknownK3sSettings checks that hostname changes and unmanaged K3s settings block reconciliation.
 func TestHostNameChangeAndUnknownK3sSettings(t *testing.T) {
 	c := testConfig(t)
 	s := managedSnapshot(t, c)
@@ -205,6 +218,7 @@ func TestHostNameChangeAndUnknownK3sSettings(t *testing.T) {
 	}
 }
 
+// TestLegacyJoiningTokenMigration checks that inline join tokens migrate only to a matching token file.
 func TestLegacyJoiningTokenMigration(t *testing.T) {
 	c := testConfig(t)
 	c.APIEndpoint = "10.0.0.1"

@@ -151,6 +151,7 @@ func LoadConfig(overrides []byte) (Config, error) {
 		return c, err
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
+
 	// Decode into the typed settings so misspelled AK3S keys are errors.
 	dec.KnownFields(true)
 	if err := dec.Decode(&c); err != nil {
@@ -251,6 +252,7 @@ func (c Config) Validate() error {
 	if n.TokenFile != "" && (!filepath.IsAbs(n.TokenFile) || strings.ContainsAny(n.TokenFile, "\n\r\x00")) {
 		return errors.New("node.token_file must be an absolute path")
 	}
+
 	// Reconciliation must never overwrite the file that supplies the join token.
 	for _, path := range []string{ConfigPath, MarkerPath, StatePath, KubeconfigPath, K3sPath, ModulesPath, SysctlPath, unitPath("server"), unitPath("agent")} {
 		if n.TokenFile != "" && filepath.Clean(n.TokenFile) == path {

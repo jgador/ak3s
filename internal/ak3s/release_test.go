@@ -39,6 +39,8 @@ func helmArchive(t *testing.T, name string, kind byte) []byte {
 	gz.Close()
 	return b.Bytes()
 }
+
+// TestChecksumArchiveAndPins checks checksum pins, safe Helm archive handling and release asset selection.
 func TestChecksumArchiveAndPins(t *testing.T) {
 	data := []byte("verified")
 	if err := Verify(data, checksum(data)); err != nil {
@@ -63,6 +65,8 @@ func TestChecksumArchiveAndPins(t *testing.T) {
 		t.Fatal(p)
 	}
 }
+
+// TestHTTPDownloader checks HTTPS downloads, redirect policy, checksum verification and cancellation.
 func TestHTTPDownloader(t *testing.T) {
 	payload := []byte("verified payload")
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -105,9 +109,12 @@ func TestHTTPDownloader(t *testing.T) {
 
 type downloadFunc func(context.Context, string, string) ([]byte, error)
 
+// Get delegates artifact downloads to the test callback.
 func (f downloadFunc) Get(ctx context.Context, url, sum string) ([]byte, error) {
 	return f(ctx, url, sum)
 }
+
+// TestPrepareUsesRealRenderingPathAndIsolatedWorkspace checks verified downloads, isolated Helm settings and validation of installed releases.
 func TestPrepareUsesRealRenderingPathAndIsolatedWorkspace(t *testing.T) {
 	for _, existing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "fresh", true: "existing"}[existing], func(t *testing.T) {
@@ -170,6 +177,8 @@ func TestPrepareUsesRealRenderingPathAndIsolatedWorkspace(t *testing.T) {
 		})
 	}
 }
+
+// TestPrepareFailuresCleanUp checks that preparation failures remove temporary artifacts.
 func TestPrepareFailuresCleanUp(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
@@ -206,6 +215,8 @@ func TestPrepareFailuresCleanUp(t *testing.T) {
 	}
 	b.Close()
 }
+
+// TestBootstrapInstaller checks released binary installation and preservation of the old binary after validation failures.
 func TestBootstrapInstaller(t *testing.T) {
 	root := t.TempDir()
 	bin := filepath.Join(root, "tools")

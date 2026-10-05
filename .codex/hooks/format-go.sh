@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 # Format pending Go changes without traversing ignored scratch files.
 set -euo pipefail
 
@@ -13,6 +14,7 @@ mapfile -d '' -t candidates < <(
 
 files=()
 for file in "${candidates[@]}"; do
+
   # Deleted files and symlinks are not formatter targets.
   if [[ -f "$file" && ! -L "$file" ]]; then
     files+=("$file")

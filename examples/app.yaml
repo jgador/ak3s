@@ -49,6 +49,7 @@ metadata:
   namespace: demo
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
+
     # Enable after a production certificate has been issued.
     nginx.org/ssl-redirect: "false"
 spec:

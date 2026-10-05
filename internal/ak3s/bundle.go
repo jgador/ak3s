@@ -39,6 +39,8 @@ func (b *Bundle) ValuesPath(c Chart) string { return filepath.Join(b.Dir, c.Rele
 
 // Preparer downloads and validates the artifacts required by a plan before host changes.
 type Preparer interface {
+
+	// Prepare stages and validates artifacts; callers must close a successful bundle.
 	Prepare(context.Context, Plan) (*Bundle, error)
 }
 
@@ -56,6 +58,7 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 		return nil, err
 	}
 	b := &Bundle{Dir: dir, Values: map[string][]byte{}, Charts: map[string][]byte{}, Rendered: map[string][]byte{}, Manifests: map[string][]byte{}, Releases: map[string]string{}}
+
 	// The named error return lets this cleanup cover every preparation failure.
 	defer func() {
 		if err != nil {
@@ -105,6 +108,7 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 			b.Releases[r.Namespace+"/"+r.Name] = r.Chart + " (" + r.Status + ")"
 		}
 	}
+
 	// Render the pinned charts locally before installation can change the cluster.
 	for _, chart := range p.Pins.Charts {
 		values, err := ValuesFor(chart, p.Config)
@@ -155,6 +159,7 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 			return nil, fmt.Errorf("validate %s: %w", name, err)
 		}
 	}
+
 	// Use Helm's own server dry-run for installed releases. No hooks are executed,
 	// no releases are saved, and output is discarded rather than leaking Secrets.
 	for _, chart := range p.Pins.Charts {

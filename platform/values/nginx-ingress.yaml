@@ -10,6 +10,7 @@ controller:
     setAsDefaultIngress: true
   service:
     type: LoadBalancer
+
     # ServiceLB can receive traffic on any node, even with a single controller.
     externalTrafficPolicy: Cluster
   resources:

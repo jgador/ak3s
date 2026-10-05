@@ -18,10 +18,13 @@ type fakeHost struct {
 	plan                 Plan
 }
 
+// Inspect records inspection calls and returns the configured snapshot or error.
 func (h *fakeHost) Inspect(context.Context, Config) (Snapshot, error) {
 	h.inspections++
 	return h.s, h.inspectErr
 }
+
+// Apply records the supplied plan and returns the configured apply error.
 func (h *fakeHost) Apply(_ context.Context, p Plan, _ *Bundle) error {
 	h.applies++
 	h.plan = p
@@ -30,6 +33,7 @@ func (h *fakeHost) Apply(_ context.Context, p Plan, _ *Bundle) error {
 
 type prepareFunc func(context.Context, Plan) (*Bundle, error)
 
+// Prepare delegates artifact preparation to the test callback.
 func (f prepareFunc) Prepare(ctx context.Context, p Plan) (*Bundle, error) { return f(ctx, p) }
 func appFixture(t *testing.T) (*App, *fakeHost, *bytes.Buffer, *int) {
 	t.Helper()
@@ -42,6 +46,8 @@ func appFixture(t *testing.T) (*App, *fakeHost, *bytes.Buffer, *int) {
 	})}
 	return app, h, out, calls
 }
+
+// TestCLIDryRunCannotMutate checks that dry-run plans and prepares without applying changes.
 func TestCLIDryRunCannotMutate(t *testing.T) {
 	for _, cmd := range []string{"install", "apply", "upgrade"} {
 		t.Run(cmd, func(t *testing.T) {
@@ -58,6 +64,8 @@ func TestCLIDryRunCannotMutate(t *testing.T) {
 		})
 	}
 }
+
+// TestCLIDryRunStillRendersBlockedHost checks that dry-run renders blocked hosts while real installs stop before preparation.
 func TestCLIDryRunStillRendersBlockedHost(t *testing.T) {
 	app, h, out, calls := appFixture(t)
 	h.s.Systemd = false
@@ -71,6 +79,8 @@ func TestCLIDryRunStillRendersBlockedHost(t *testing.T) {
 		t.Fatal("unsupported host mutated")
 	}
 }
+
+// TestCLIFailureBoundaries checks that CLI failures prevent later apply operations.
 func TestCLIFailureBoundaries(t *testing.T) {
 	for _, stage := range []string{"configuration", "inspect", "ownership", "prepare", "apply", "root"} {
 		t.Run(stage, func(t *testing.T) {
@@ -98,6 +108,8 @@ func TestCLIFailureBoundaries(t *testing.T) {
 		})
 	}
 }
+
+// TestCLICommandsFlagsAndConfigSelection checks read-only commands, flag validation and configuration file selection.
 func TestCLICommandsFlagsAndConfigSelection(t *testing.T) {
 	for _, cmd := range []string{"config", "version", "help", "--help"} {
 		app, h, out, _ := appFixture(t)
@@ -135,6 +147,8 @@ func TestCLICommandsFlagsAndConfigSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestCLIApplyAndTempCleanup checks that apply runs once and removes its temporary bundle.
 func TestCLIApplyAndTempCleanup(t *testing.T) {
 	app, h, _, _ := appFixture(t)
 	dir := filepath.Join(t.TempDir(), "temporary")
@@ -150,6 +164,8 @@ func TestCLIApplyAndTempCleanup(t *testing.T) {
 		t.Fatal("workspace not removed")
 	}
 }
+
+// TestCLIStatusNeverUsesAmbientContext checks that status uses the managed kubeconfig without preparing or applying changes.
 func TestCLIStatusNeverUsesAmbientContext(t *testing.T) {
 	app, h, out, calls := appFixture(t)
 	h.s = managedSnapshot(t, testConfig(t))
@@ -171,6 +187,8 @@ func TestCLIStatusNeverUsesAmbientContext(t *testing.T) {
 		t.Fatal("unmanaged status reported healthy")
 	}
 }
+
+// TestRenderOutput checks that render exports configuration and resources without inspecting or changing the host.
 func TestRenderOutput(t *testing.T) {
 	app, h, _, _ := appFixture(t)
 	dir := t.TempDir()

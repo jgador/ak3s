@@ -39,6 +39,7 @@ func K3sConfig(c Config, legacyToken string) ([]byte, error) {
 			}
 		}
 		v["tls-san"] = sans
+
 		// Only the first etcd server initializes the datastore; other servers join it.
 		if n.Datastore == "etcd" && !n.Join {
 			v["cluster-init"] = true

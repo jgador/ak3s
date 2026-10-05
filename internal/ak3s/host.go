@@ -29,6 +29,8 @@ type Command struct {
 
 // Runner abstracts process execution so tests can record commands without running them.
 type Runner interface {
+
+	// Run executes a command and returns its output or an error.
 	Run(context.Context, Command) ([]byte, error)
 }
 
@@ -47,6 +49,7 @@ func (ExecRunner) Run(ctx context.Context, c Command) ([]byte, error) {
 	cmd.Stdin = bytes.NewReader(c.Input)
 	cmd.Env = cleanEnv(c.Env)
 	output, err := cmd.CombinedOutput()
+
 	// Do not echo command output on failure: Helm/validation errors can contain Secrets.
 	if err != nil {
 		return nil, fmt.Errorf("%s %s failed: %w (output suppressed to protect secrets)", filepath.Base(c.Name), firstArg(c.Args), err)
@@ -62,9 +65,11 @@ func firstArg(args []string) string {
 
 // cleanEnv builds a predictable child environment with permitted network settings.
 func cleanEnv(extra []string) []string {
+
+	// Do not inherit K3S_*, HELM_*, KUBECONFIG or plugin configuration from the shell.
 	result := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "LANG=C.UTF-8"}
-	// Proxy settings are needed for restricted outbound installations. Do not inherit
-	// K3S_*, HELM_*, KUBECONFIG or plugin configuration from the invoking shell.
+
+	// Proxy settings are needed for restricted outbound installations.
 	for _, k := range []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"} {
 		if v, ok := os.LookupEnv(k); ok {
 			result = append(result, k+"="+v)
@@ -75,21 +80,36 @@ func cleanEnv(extra []string) []string {
 
 // Reader abstracts the filesystem reads used during host inspection.
 type Reader interface {
+
+	// ReadFile returns the contents of a file.
 	ReadFile(string) ([]byte, error)
+
+	// Stat returns file information, following symlinks.
 	Stat(string) (fs.FileInfo, error)
+
+	// ReadDir lists the entries in a directory.
 	ReadDir(string) ([]fs.DirEntry, error)
 }
 
 // OSReader implements Reader using the local filesystem.
 type OSReader struct{}
 
-func (OSReader) ReadFile(p string) ([]byte, error)       { return os.ReadFile(p) }
-func (OSReader) Stat(p string) (fs.FileInfo, error)      { return os.Stat(p) }
+// ReadFile returns the contents of a local file.
+func (OSReader) ReadFile(p string) ([]byte, error) { return os.ReadFile(p) }
+
+// Stat returns local file information, following symlinks.
+func (OSReader) Stat(p string) (fs.FileInfo, error) { return os.Stat(p) }
+
+// ReadDir lists the entries in a local directory.
 func (OSReader) ReadDir(p string) ([]fs.DirEntry, error) { return os.ReadDir(p) }
 
 // Host separates read-only inspection from applying a validated plan.
 type Host interface {
+
+	// Inspect observes this node without changing its files or services.
 	Inspect(context.Context, Config) (Snapshot, error)
+
+	// Apply executes a validated plan using its prepared artifacts.
 	Apply(context.Context, Plan, *Bundle) error
 }
 
@@ -172,6 +192,7 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 			s.Problems = append(s.Problems, "unmanaged drop-in configuration at "+p)
 		}
 	}
+
 	// Legacy installation environment may override config.yaml. Require operators
 	// to migrate it explicitly instead of silently changing cluster identity.
 	for _, p := range []string{unitPath(c.Node.Role) + ".env", "/etc/default/" + serviceName(c.Node.Role), "/etc/sysconfig/" + serviceName(c.Node.Role)} {
@@ -237,6 +258,7 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 		if info.Mode().Perm()&0077 != 0 {
 			return s, errors.New("node.token_file must be readable only by its owner (0600)")
 		}
+
 		// Persist only a fingerprint so later runs can detect token changes.
 		sum := sha256.Sum256(bytes.TrimSpace(data))
 		s.TokenSHA256 = hex.EncodeToString(sum[:])
@@ -253,6 +275,7 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 			s.TokenSHA256 = hex.EncodeToString(sum[:])
 		}
 	}
+
 	// Never execute an unowned binary during discovery.
 	if ok, err := exists(K3sPath); err != nil {
 		return s, err
