@@ -44,8 +44,8 @@ skill in a user/global skills directory.
 Read these repository files before using the inventory below:
 
 - `internal/ak3s/plan.go`: fixed paths, ownership/state, and generated host settings.
-- `internal/ak3s/reconcile.go` and `internal/ak3s/render.go`: installation order,
-  node roles, service behavior, and restart checkpoints.
+- `internal/ak3s/reconcile.go`, `internal/ak3s/installer.go`, and
+  `internal/ak3s/uninstall.go`: upstream lifecycle, node roles, and recovery checkpoints.
 - `internal/ak3s/host.go`: existing-installation and configuration checks.
 - `docs/wsl-testing.md`, `docs/runtime-testing.md`, and `docs/operations.md`:
   runtime tests, ports, storage, and recovery limits.
@@ -106,71 +106,52 @@ or creating a new ownership record.
 
 ## Stop writers, containers, and cluster networking
 
-AK3S installs K3s directly and does not generate `k3s-uninstall.sh` or
-`k3s-killall.sh`. Stopping its service alone can leave containers running because
-the generated service uses `KillMode=process`. Do not assume those scripts exist
-or run a newly downloaded installer to obtain them.
+AK3S delegates native installation and removal to upstream K3s. The official
+installer generates the role-specific uninstall script and `k3s-killall.sh`.
+Use `ak3s uninstall` for a migrated native installation; it verifies ownership
+and generated-script fingerprints, locks the host, and retains recovery copies
+if upstream cleanup is interrupted. Its removal command does not remove operator
+overrides, so handle those separately below within this skill's authorized scope.
 
-1. Prevent automatic restarts and stop verified AK3S CLI operations and private
-   interface port-forwards. Acquire and hold the existing
-   `/var/lib/ak3s/apply.lock` without waiting if that directory exists. If another
-   reconciliation owns it, identify and stop that operation within the authorized
-   scope, or report the blocker. Revalidate ownership after acquiring the lock;
-   keep it held throughout host cleanup. Never create installation state on an
-   already clean host just to acquire a lock.
-2. For verified AK3S Docker test clusters, stop the exact containers, remove
-   them, and remove only their exclusive test volumes. Include anonymous kubelet,
-   CNI, and log volumes as well as the named data volume when exclusively owned.
-   Remove exclusive test networks if present; retain Docker's shared bridge,
-   daemon, configuration, unrelated containers, images, and caches.
-3. For native K3s, stop its pod sandboxes through its own CRI endpoint while that
-   runtime is available. Explicitly select the inspected K3s containerd socket,
-   normally `unix:///run/k3s/containerd/containerd.sock`, for `k3s crictl` calls;
-   do not use the Docker or host containerd endpoint. Then disable and stop the
-   verified K3s service and terminate any remaining processes in its verified
-   service cgroup, including containerd shims and pod children.
-4. Stop a verified standalone process gracefully, allow up to 10 seconds, then
-   recheck PID/start time and ownership before forced termination. Stop its socket,
-   container, or supervisor first if it can respawn. Never use broad `pkill`,
-   `killall`, or blind `fuser -k`, or kill the current agent/control session.
-   After one graceful attempt and one verified forced attempt, investigate a
-   remaining supervisor or report a blocker instead of repeating kills.
-5. With all writers stopped, unmount only identified K3s/container targets,
-   deepest first: pod mounts under `/var/lib/kubelet`, K3s runtime mounts under
-   `/run/k3s`, and its identified CNI namespace mounts. An empty kubelet self-bind
-   mount can remain on WSL; unmount it before removing the directory. Do not
-   recurse across live mounts or use lazy/forced unmounts as a shortcut.
-6. Remove only verified cluster interfaces, CNI state, routes, and namespace
-   mounts. Examples are `cni0`, its attached veth interfaces, and `flannel.1`.
-   Preserve `eth0`, loopback, Docker interfaces, and networking for other clusters.
-7. Inspect IPv4 and IPv6 firewall backends in use, including legacy backends
-   when relevant. Remove cluster rules from other chains, flush the owned
-   `KUBE-*`, `CNI-*`, and `FLANNEL*` chains, then delete those chains and exclusive
-   cluster ipsets. Inspect inline kube-router/flannel rules too. Do not flush
-   entire tables, reset default policies, or remove Docker/host firewall rules.
-   These prefixes are shared across Kubernetes installations: only remove all of
-   them when inventory confirms no other host cluster owns them. If another
-   cluster shares that network namespace, isolate ownership or report the conflict.
+1. Stop verified AK3S CLI operations and private interface port-forwards. Let
+   `ak3s uninstall` acquire its own lock; do not hold `apply.lock` while invoking
+   it. If another reconciliation holds the lock, identify that operation and
+   resolve it within the authorized cleanup scope before retrying.
+2. For verified AK3S Docker test clusters, stop and remove the exact containers
+   and their exclusive test volumes/networks using Docker. Preserve the shared
+   daemon, bridge, unrelated containers, images, and caches.
+3. For a native installation, review `sudo ak3s uninstall --dry-run`, then run
+   `sudo ak3s uninstall --yes`. The explicit invocation of this cleanup skill
+   already authorizes deletion of the verified local test cluster. The generated
+   upstream scripts own service, process, mount, network, and K3s data removal.
+4. For interrupted removal, preserve `/var/lib/ak3s/state.json`, `uninstall.sh`,
+   and `killall.sh` and repeat the removal command after resolving the reported
+   issue. The marker and original script may already be gone; the pending state
+   and verified recovery scripts retain evidence for the remaining operation.
+5. If a legacy installation lacks verified generated scripts, stop native cleanup
+   and explain that it needs a separately authorized migration or an existing
+   upstream recovery procedure. Do not run an installer merely to generate
+   removal scripts, and do not substitute manual process, firewall, mount, or
+   recursive K3s data deletion. See `docs/migration.md` and
+   `docs/operations.md#removal`.
 
-If a verified pre-existing official uninstall/killall script is present, review
-its ownership, contents, data directory, and environment before using it instead
-of the equivalent native steps. It must target only the authorized local cluster
-and preserve unrelated networking. Still remove AK3S-specific leftovers below.
-
-If stopping processes, unmounting, or network cleanup fails, keep the ownership
-marker and state for diagnosis and retry. Report completed deletions accurately.
-Do not delete persistent files beneath running containers or live mounts.
+If upstream cleanup fails, keep the ownership/state and recovery scripts for
+retry. Report completed deletions accurately. Do not delete persistent files
+beneath running containers or live mounts.
 
 ## Remove configuration and persistent data
 
-After shutdown and networking cleanup, remove these verified local targets:
+After upstream removal succeeds, inspect the targets below. K3s-owned targets
+should already be removed by the generated scripts; report leftovers and retry
+the upstream workflow instead of recreating its cleanup logic. Remove only the
+remaining verified AK3S test configuration and artifacts within scope:
 
 | Target | Scope |
 | --- | --- |
 | `/var/lib/rancher/k3s/` | Local datastore, certificates/tokens, images, snapshots, and local-path application volumes. |
 | `/etc/rancher/k3s/` | K3s config, kubeconfig credentials, owned drop-ins, and the AK3S ownership marker. |
 | `/etc/rancher/node/` | Local node registration credentials, when owned by the removed cluster. |
-| `/var/lib/ak3s/` | State checkpoint and apply lock; remove at the end of the locked cleanup. |
+| `/var/lib/ak3s/` | AK3S removes completed checkpoints and recovery scripts. Keep `apply.lock` in place so concurrent operations use the same lock file. |
 | `/etc/ak3s/values.yaml` | Operator overrides, including node identity and ACME contact settings. Remove the directory only if empty or all remaining files are verified AK3S test configuration. |
 | `/etc/systemd/system/k3s.service` or `k3s-agent.service` | Verified installation unit, enablement links, and owned drop-ins/environment files. |
 | `/etc/modules-load.d/ak3s.conf` | AK3S's persistent module-loading settings. |
@@ -178,8 +159,8 @@ After shutdown and networking cleanup, remove these verified local targets:
 | `/usr/local/bin/k3s` | Verified cluster executable; remove owned helper scripts/symlinks only when proven installation artifacts. |
 | `/var/lib/kubelet/`, `/var/lib/cni/`, `/run/k3s/`, `/run/flannel/` | Verified runtime state after their processes and mounts are gone. |
 
-Remove only installation-owned CNI configuration under `/etc/cni/net.d/` and
-verified custom local volume paths. Do not delete all of `/etc/rancher`,
+Report remaining CNI configuration under `/etc/cni/net.d/` or custom volume
+paths for explicit review. Do not delete all of `/etc/rancher`,
 `/var/lib/rancher`, `/etc/cni`, or `/etc/kubernetes`. Retained/external PVs and
 datastores require separate authorization and are not erased by local cleanup.
 
@@ -197,8 +178,8 @@ report them as retained. Do not guess that forwarding used to be zero, unload
 backup exports unless the user explicitly includes them. Do not vacuum the system
 journal to erase installation logs.
 
-Reload systemd and clear only removed units' failed state after deleting their
-owned unit files. Keep failure output private if it could contain credentials.
+The upstream scripts handle service-manager cleanup. Keep failure output private
+if it could contain credentials.
 
 ## Verify and hand off
 

@@ -27,6 +27,13 @@ const (
 // It is not a guarantee that every platform service is healthy.
 type State struct {
 
+	// ServiceSHA256 detects changes to the upstream-generated unit.
+	ServiceSHA256   string `json:"service_sha256,omitempty"`
+	InstallerSHA256 string `json:"installer_sha256,omitempty"`
+	// GeneratedScripts records the installer-generated removal scripts for verification.
+	GeneratedScripts  map[string]string `json:"generated_scripts,omitempty"`
+	UninstallComplete bool              `json:"uninstall_complete,omitempty"`
+	PendingUninstall  bool              `json:"pending_uninstall,omitempty"`
 	// PendingRestart stays set until service readiness has been confirmed.
 	PendingRestart bool       `json:"pending_restart"`
 	Schema         int        `json:"schema"`
@@ -41,12 +48,13 @@ type State struct {
 
 // Snapshot contains observed host state used to validate and compare planned changes.
 type Snapshot struct {
-	OS, Arch, Distribution, DistributionVersion, Hostname             string
-	Root, Systemd, Swap, Existing, Managed, ServiceActive, Kubeconfig bool
-	K3sVersion, Role, TokenSHA256                                     string
-	Files                                                             map[string][]byte
-	State                                                             *State
-	Problems                                                          []string
+	OS, Arch, Distribution, DistributionVersion, Hostname                             string
+	Root, Systemd, Swap, Existing, Managed, ServiceActive, ServiceEnabled, Kubeconfig bool
+	K3sVersion, Role, TokenSHA256                                                     string
+	Files                                                                             map[string][]byte
+	State                                                                             *State
+	Problems                                                                          []string
+	DataPresent, EmptyDataOnly                                                        bool
 }
 
 // Action describes a proposed operation for CLI output, without executing it.
@@ -54,14 +62,14 @@ type Action struct{ Kind, Target, Detail string }
 
 // Plan holds desired files, required operations, and failed checks found during planning.
 type Plan struct {
-	Config                 Config
-	Pins                   Pins
-	Snapshot               Snapshot
-	Files                  map[string][]byte
-	Actions                []Action
-	Problems, Warnings     []string
-	InstallBinary, Restart bool
-	State                  State
+	Config                               Config
+	Pins                                 Pins
+	Snapshot                             Snapshot
+	Files                                map[string][]byte
+	Actions                              []Action
+	Problems, Warnings                   []string
+	InstallBinary, Restart, RunInstaller bool
+	State                                State
 }
 
 func unitPath(role string) string { return "/etc/systemd/system/" + serviceName(role) + ".service" }
@@ -100,6 +108,9 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 	if s.Existing && !s.Managed {
 		return p, errors.New("existing K3s is not managed by AK3S; refusing to overwrite it")
 	}
+	if s.Managed && s.State == nil && len(s.Files[ConfigPath]) == 0 && (s.DataPresent || s.K3sVersion != "" || s.Role != "") {
+		return p, errors.New("existing K3s has no identity configuration; restore its configuration or AK3S state before migrating")
+	}
 	if s.Managed && s.Role != "" && s.Role != c.Node.Role {
 		return p, errors.New("changing node role requires an explicit migration")
 	}
@@ -111,10 +122,16 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 	}
 	if s.State != nil {
 		old := s.State
+		if old.PendingUninstall {
+			return p, errors.New("uninstall is incomplete; rerun ak3s uninstall --yes")
+		}
+		if err := CheckUpgrade(old.K3sVersion, pins.K3s, command == "upgrade"); err != nil {
+			return p, err
+		}
 		if err := CheckAK3SUpgrade(old.AK3SVersion, Version); err != nil {
 			return p, err
 		}
-		if old.Schema != 1 {
+		if old.Schema != 1 && old.Schema != 2 {
 			return p, errors.New("unsupported AK3S state schema")
 		}
 		if old.ClusterName != c.ClusterName || old.Node.Role != c.Node.Role || old.Node.Datastore != c.Node.Datastore || old.Node.Join != c.Node.Join || old.Node.Name != c.Node.Name {
@@ -172,7 +189,6 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 		return p, err
 	}
 	p.Files[ConfigPath] = config
-	p.Files[unitPath(c.Node.Role)] = serviceUnit(c.Node.Role)
 	p.Files[ModulesPath] = []byte("overlay\nbr_netfilter\n")
 	p.Files[SysctlPath] = []byte("net.ipv4.ip_forward = 1\nnet.bridge.bridge-nf-call-iptables = 1\n")
 	p.InstallBinary = s.K3sVersion != pins.K3s
@@ -183,14 +199,14 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 		}
 		p.Actions = append(p.Actions, Action{kind, "K3s", s.K3sVersion + " -> " + pins.K3s + " (verify pinned SHA-256)"})
 	}
-	for _, path := range []string{ModulesPath, SysctlPath, ConfigPath, unitPath(c.Node.Role)} {
+	for _, path := range []string{ModulesPath, SysctlPath, ConfigPath} {
 		if !bytes.Equal(s.Files[path], p.Files[path]) {
 			kind := "create"
 			if len(s.Files[path]) > 0 {
 				kind = "update"
 			}
 			p.Actions = append(p.Actions, Action{kind, path, "atomic replacement"})
-			if path == ConfigPath || path == unitPath(c.Node.Role) {
+			if path == ConfigPath {
 				p.Restart = true
 			}
 		}
@@ -198,6 +214,28 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 
 	// Retry an interrupted restart even when the desired files are already on disk.
 	p.Restart = p.Restart || p.InstallBinary || (s.State != nil && s.State.PendingRestart)
+	p.RunInstaller = p.Restart || !s.ServiceActive || !s.ServiceEnabled || s.State == nil || s.State.Schema < 2 || s.State.InstallerSHA256 != pins.Installer.SHA256
+	for _, path := range []string{unitPath(c.Node.Role), uninstallPath(c.Node.Role), KillallPath} {
+		if len(s.Files[path]) == 0 {
+			p.RunInstaller = true
+		}
+	}
+	if s.State != nil {
+		if fingerprint(s.Files[unitPath(c.Node.Role)]) != s.State.ServiceSHA256 {
+			p.RunInstaller = true
+		}
+		for _, path := range []string{uninstallPath(c.Node.Role), KillallPath} {
+			if fingerprint(s.Files[path]) != s.State.GeneratedScripts[path] {
+				p.RunInstaller = true
+			}
+		}
+	}
+	if p.RunInstaller {
+		p.Actions = append(p.Actions, Action{"run", "official K3s installer", "pinned script and binary; generate service and uninstall scripts; restart if needed"})
+		if s.Existing && (s.State == nil || s.State.Schema < 2) {
+			p.Warnings = append(p.Warnings, "migrate the existing service in place; back up the datastore, token and volumes before applying")
+		}
+	}
 	p.Actions = append(p.Actions, Action{"record", "AK3S ownership and state", MarkerPath + "; " + StatePath})
 	p.Actions = append(p.Actions, Action{"reconcile", "host prerequisites", "ensure iptables, CA certificates, kernel modules and forwarding"})
 	if p.Restart {
@@ -211,7 +249,11 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 		}
 		p.Actions = append(p.Actions, Action{"apply", "ClusterIssuers and role-based access control (RBAC)", "idempotent kubectl apply"})
 	}
-	p.State = State{PendingRestart: true, Schema: 1, AK3SVersion: Version, K3sVersion: pins.K3s, ClusterName: c.ClusterName, Node: c.Node, TokenSHA256: s.TokenSHA256}
+	p.State = State{PendingRestart: p.RunInstaller, Schema: 2, InstallerSHA256: pins.Installer.SHA256, AK3SVersion: Version, K3sVersion: pins.K3s, ClusterName: c.ClusterName, Node: c.Node, TokenSHA256: s.TokenSHA256}
+	if s.State != nil {
+		p.State.GeneratedScripts = s.State.GeneratedScripts
+		p.State.ServiceSHA256 = s.State.ServiceSHA256
+	}
 	p.Warnings = append(p.Warnings, "Helm rollback is per release; there is no whole-platform rollback")
 	if c.Node.Datastore == "etcd" {
 		p.Warnings = append(p.Warnings, "run one server at a time and verify etcd quorum (a majority of servers available); server_count describes the intended topology and does not confirm quorum")

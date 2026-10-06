@@ -19,10 +19,16 @@ func managedSnapshot(t *testing.T, c Config) Snapshot {
 	s.Existing = true
 	s.Managed = true
 	s.ServiceActive = true
+	s.ServiceEnabled = true
 	s.Kubeconfig = true
 	s.Role = c.Node.Role
 	s.K3sVersion = p.Pins.K3s
 	s.Files = p.Files
+	s.Files[unitPath(c.Node.Role)] = []byte("upstream service")
+	p.State.ServiceSHA256 = fingerprint(s.Files[unitPath(c.Node.Role)])
+	s.Files[uninstallPath(c.Node.Role)] = []byte("upstream uninstall")
+	s.Files[KillallPath] = []byte("upstream killall")
+	p.State.GeneratedScripts = map[string]string{uninstallPath(c.Node.Role): fingerprint(s.Files[uninstallPath(c.Node.Role)]), KillallPath: fingerprint(s.Files[KillallPath])}
 	s.Files[MarkerPath] = []byte("Managed by AK3S\n")
 	p.State.PendingRestart = false
 	s.State = &p.State
@@ -56,6 +62,46 @@ func TestPlanInstallAndNoUnnecessaryRestart(t *testing.T) {
 	p, err = BuildPlan(c, testPins(t), managedSnapshot(t, testConfig(t)), "apply")
 	if err != nil || p.Restart {
 		t.Fatal("platform changes must not restart K3s", err)
+	}
+}
+
+func TestGeneratedFilesAndServiceRepair(t *testing.T) {
+	c := testConfig(t)
+	for _, change := range []string{"disabled", "inactive", "unit", "script", "installer"} {
+		t.Run(change, func(t *testing.T) {
+			s := managedSnapshot(t, c)
+			switch change {
+			case "disabled":
+				s.ServiceEnabled = false
+			case "inactive":
+				s.ServiceActive = false
+			case "unit":
+				s.Files[unitPath("server")] = []byte("changed")
+			case "script":
+				delete(s.Files, KillallPath)
+			case "installer":
+				s.State.InstallerSHA256 = strings.Repeat("0", 64)
+			}
+			p, err := BuildPlan(c, testPins(t), s, "apply")
+			if err != nil || !p.RunInstaller || p.InstallBinary {
+				t.Fatal("upstream repair missing", err)
+			}
+		})
+	}
+}
+
+func TestLegacyMigrationRequiresIdentity(t *testing.T) {
+	c := testConfig(t)
+	s := freshSnapshot()
+	s.Managed, s.Existing, s.DataPresent = true, true, true
+	if _, err := BuildPlan(c, testPins(t), s, "apply"); err == nil {
+		t.Fatal("existing data migrated without identity")
+	}
+	// A failed first install can leave only the ownership marker before state
+	// or configuration was written; it must still be possible to retry.
+	s.DataPresent = false
+	if _, err := BuildPlan(c, testPins(t), s, "apply"); err != nil {
+		t.Fatal("marker-only first install cannot recover", err)
 	}
 }
 
@@ -136,7 +182,7 @@ func TestHostBlockersAndInterruptedRestart(t *testing.T) {
 		t.Fatal("inactive service not started")
 	}
 	var state State
-	if err = json.Unmarshal(p.StateJSON(), &state); err != nil || state.Schema != 1 {
+	if err = json.Unmarshal(p.StateJSON(), &state); err != nil || state.Schema != 2 {
 		t.Fatal(err)
 	}
 }

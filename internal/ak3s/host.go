@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -25,6 +26,8 @@ type Command struct {
 	Args  []string
 	Input []byte
 	Env   []string
+	// IsolatedEnv excludes inherited network settings as well as application settings.
+	IsolatedEnv bool
 }
 
 // Runner abstracts process execution so tests can record commands without running them.
@@ -46,8 +49,17 @@ func (ExecRunner) Run(ctx context.Context, c Command) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
+	// Installer shells start children. Cancel the whole process group before
+	// releasing the host lock so a detached installer child cannot keep writing.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = time.Second
 	cmd.Stdin = bytes.NewReader(c.Input)
-	cmd.Env = cleanEnv(c.Env)
+	if c.IsolatedEnv {
+		cmd.Env = append(baseEnv(), c.Env...)
+	} else {
+		cmd.Env = cleanEnv(c.Env)
+	}
 	output, err := cmd.CombinedOutput()
 
 	// Do not print command output on failure: Helm and validation errors can contain Secrets.
@@ -63,11 +75,16 @@ func firstArg(args []string) string {
 	return ""
 }
 
+// baseEnv supplies the fixed environment for local installer operations.
+func baseEnv() []string {
+	return []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "LANG=C.UTF-8"}
+}
+
 // cleanEnv builds a predictable child environment with permitted network settings.
 func cleanEnv(extra []string) []string {
 
 	// Do not inherit K3S_*, HELM_*, KUBECONFIG or plugin configuration from the shell.
-	result := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "LANG=C.UTF-8"}
+	result := baseEnv()
 
 	// Proxy settings are needed for restricted outbound installations.
 	for _, k := range []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"} {
@@ -84,6 +101,9 @@ type Reader interface {
 	// ReadFile returns the contents of a file.
 	ReadFile(string) ([]byte, error)
 
+	// Lstat returns file information without following symlinks.
+	Lstat(string) (fs.FileInfo, error)
+
 	// Stat returns file information, following symlinks.
 	Stat(string) (fs.FileInfo, error)
 
@@ -96,6 +116,9 @@ type OSReader struct{}
 
 // ReadFile returns the contents of a local file.
 func (OSReader) ReadFile(p string) ([]byte, error) { return os.ReadFile(p) }
+
+// Lstat returns local file information without following symlinks.
+func (OSReader) Lstat(p string) (fs.FileInfo, error) { return os.Lstat(p) }
 
 // Stat returns local file information, following symlinks.
 func (OSReader) Stat(p string) (fs.FileInfo, error) { return os.Stat(p) }
@@ -149,7 +172,12 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 		}
 		return data, err
 	}
-	for _, p := range []string{ConfigPath, MarkerPath, StatePath, ModulesPath, SysctlPath, unitPath("server"), unitPath("agent")} {
+	for _, p := range []string{ConfigPath, MarkerPath, StatePath, ModulesPath, SysctlPath, unitPath("server"), unitPath("agent"), unitPath("server") + ".env", unitPath("agent") + ".env", uninstallPath("server"), uninstallPath("agent"), KillallPath, RemovalScriptPath, RemovalKillallPath} {
+		if info, err := r.Lstat(p); err == nil && !info.Mode().IsRegular() {
+			return s, fmt.Errorf("managed destination is not a regular file: %s", p)
+		} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return s, err
+		}
 		data, err := read(p)
 		if err != nil {
 			return s, fmt.Errorf("inspect %s: %w", p, err)
@@ -168,20 +196,48 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 			return s, errors.New("empty AK3S state")
 		}
 	}
-	for _, p := range []string{K3sPath, ConfigPath, StatePath, "/var/lib/rancher/k3s", unitPath("server"), unitPath("agent")} {
+	dataOnly := true
+	for _, p := range []string{K3sPath, ConfigPath, MarkerPath, StatePath, "/var/lib/rancher/k3s", unitPath("server"), unitPath("agent"), uninstallPath("server"), uninstallPath("agent"), KillallPath} {
 		ok, err := exists(p)
 		if err != nil {
 			return s, err
 		}
 		s.Existing = s.Existing || ok
+		if p == "/var/lib/rancher/k3s" {
+			s.DataPresent = ok
+		} else if ok {
+			dataOnly = false
+		}
+	}
+	if s.DataPresent && dataOnly {
+		entries, err := r.ReadDir("/var/lib/rancher/k3s")
+		if err != nil {
+			return s, err
+		}
+		s.EmptyDataOnly = len(entries) == 0
 	}
 	if len(s.Files[unitPath("agent")]) > 0 {
 		s.Role = "agent"
 	} else if len(s.Files[unitPath("server")]) > 0 {
 		s.Role = "server"
 	}
+	if s.Role == "" && s.State != nil {
+		s.Role = s.State.Node.Role
+	}
 	if len(s.Files[unitPath("agent")]) > 0 && len(s.Files[unitPath("server")]) > 0 {
 		s.Problems = append(s.Problems, "both K3s server and agent units exist")
+	}
+	for _, dir := range []string{"/etc/systemd/system", "/etc/init.d"} {
+		entries, err := r.ReadDir(dir)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return s, err
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if strings.HasPrefix(name, "k3s") && ((dir == "/etc/systemd/system" && strings.HasSuffix(name, ".service") && name != "k3s.service" && name != "k3s-agent.service") || dir == "/etc/init.d") {
+				s.Problems = append(s.Problems, "additional K3s service requires manual review: "+filepath.Join(dir, name))
+			}
+		}
 	}
 	for _, p := range []string{"/etc/rancher/k3s/config.yaml.d", unitPath("server") + ".d", unitPath("agent") + ".d"} {
 		entries, err := r.ReadDir(p)
@@ -242,7 +298,7 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 	if err != nil {
 		return s, err
 	}
-	if c.Node.TokenFile != "" {
+	if c.Node.TokenFile != "" && (s.State == nil || !s.State.PendingUninstall) {
 		data, err := r.ReadFile(c.Node.TokenFile)
 		if err != nil {
 			return s, fmt.Errorf("read node.token_file: %w", err)
@@ -276,6 +332,11 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 		}
 	}
 
+	if info, err := r.Lstat(K3sPath); err == nil && !info.Mode().IsRegular() {
+		return s, errors.New("K3s binary is not a regular file")
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return s, err
+	}
 	// Never execute a binary from an installation that AK3S does not manage.
 	if ok, err := exists(K3sPath); err != nil {
 		return s, err
@@ -295,6 +356,8 @@ func Inspect(ctx context.Context, r Reader, runner Runner, c Config, s Snapshot)
 		defer cancel()
 		out, err := runner.Run(short, Command{Name: "systemctl", Args: []string{"is-active", serviceName(c.Node.Role)}})
 		s.ServiceActive = err == nil && strings.TrimSpace(string(out)) == "active"
+		_, err = runner.Run(short, Command{Name: "systemctl", Args: []string{"is-enabled", "--quiet", serviceName(c.Node.Role)}})
+		s.ServiceEnabled = err == nil
 	}
 	return s, nil
 }

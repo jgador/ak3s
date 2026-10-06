@@ -15,6 +15,7 @@ type fakeHost struct {
 	s                    Snapshot
 	inspectErr, applyErr error
 	applies, inspections int
+	uninstalls           int
 	plan                 Plan
 }
 
@@ -29,6 +30,64 @@ func (h *fakeHost) Apply(_ context.Context, p Plan, _ *Bundle) error {
 	h.applies++
 	h.plan = p
 	return h.applyErr
+}
+
+func (h *fakeHost) Uninstall(context.Context, Snapshot) error {
+	h.uninstalls++
+	return h.applyErr
+}
+
+func TestCLIUninstallConfirmationAndDryRun(t *testing.T) {
+	for _, mode := range []string{"dry-run", "unconfirmed", "confirmed", "nonroot", "unmanaged", "failure", "absent"} {
+		t.Run(mode, func(t *testing.T) {
+			app, host, _, prepared := appFixture(t)
+			host.s = managedSnapshot(t, testConfig(t))
+			args := []string{"uninstall"}
+			if mode == "dry-run" {
+				args = append(args, "--dry-run")
+			} else if mode != "unconfirmed" {
+				args = append(args, "--yes")
+			}
+			switch mode {
+			case "nonroot":
+				host.s.Root = false
+			case "unmanaged":
+				host.s.Managed = false
+			case "failure":
+				host.applyErr = errors.New("uninstall failed")
+			case "absent":
+				host.s = freshSnapshot()
+			}
+			err := app.Run(context.Background(), args)
+			wantError := mode == "unconfirmed" || mode == "nonroot" || mode == "unmanaged" || mode == "failure"
+			if (err != nil) != wantError {
+				t.Fatal(mode, err)
+			}
+			wantCalls := 0
+			if mode == "confirmed" || mode == "failure" {
+				wantCalls = 1
+			}
+			if host.uninstalls != wantCalls || host.applies != 0 || *prepared != 0 {
+				t.Fatal("uninstall crossed execution boundary")
+			}
+		})
+	}
+}
+
+func TestCLIUninstallDoesNotRequireJoinToken(t *testing.T) {
+	r := fixtureHost(t)
+	s := managedSnapshot(t, testConfig(t))
+	for path, data := range s.Files {
+		put(t, r, path, data)
+	}
+	app, _, _, _ := appFixture(t)
+	app.Host = &NativeHost{Reader: r, Runner: &effects{}}
+	app.ReadFile = func(string) ([]byte, error) {
+		return []byte("acme_email: ops@example.com\nnode:\n  token_file: /missing/join-token\n"), nil
+	}
+	if err := app.Run(context.Background(), []string{"uninstall", "--dry-run"}); err != nil {
+		t.Fatal("removal required a missing join token", err)
+	}
 }
 
 type prepareFunc func(context.Context, Plan) (*Bundle, error)

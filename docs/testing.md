@@ -33,8 +33,17 @@ actual service access and Windows-to-WSL forwarding on a running test cluster.
 Validate real pinned downloads and Helm rendering without a cluster:
 
 ```bash
-go test -tags integration -run TestPinnedCharts -v ./internal/ak3s
+go test -tags integration -run 'TestPinned(Charts|Installer|K3sArtifacts)' -v ./internal/ak3s
 ```
+
+The installer contract test downloads the pinned, unmodified upstream script and
+runs it with temporary install directories, fictional binaries, and simulated
+service/firewall commands. It checks server and agent unit generation, local
+artifact checksums, unchanged reruns, configuration restarts, and upgrades. It
+syntax-checks the generated removal scripts without executing them. The artifact
+test downloads both pinned K3s binaries and verifies their hashes without running
+either binary. Normal tests simulate migration, interrupted installation/removal,
+ownership, token and version checks, and CLI confirmation and dry-run boundaries.
 
 Before releasing, use disposable supported VPSs or full Linux virtual machines to check installation, reruns, upgrades, interrupted-run recovery, ingress and TLS, dashboard permissions, metrics and log ingestion, and backup restoration. Follow the [runtime checklist](runtime-testing.md) and repeat public networking and certificate checks on a real VPS. WSL2 provides a local test environment, but its kernel, network, and startup behavior differ from a VPS. Check etcd quorum (a majority of servers available) if testing a redundant control plane. Unit and rendering tests do not prove runtime readiness.
 

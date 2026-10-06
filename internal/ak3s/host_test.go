@@ -6,9 +6,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type runFunc func(context.Context, Command) ([]byte, error)
@@ -22,6 +22,9 @@ func (r rootedReader) path(p string) string { return filepath.Join(r.root, p) }
 
 // ReadFile reads a file beneath the fixture root.
 func (r rootedReader) ReadFile(p string) ([]byte, error) { return os.ReadFile(r.path(p)) }
+
+// Lstat inspects a fixture without following symlinks.
+func (r rootedReader) Lstat(p string) (fs.FileInfo, error) { return os.Lstat(r.path(p)) }
 
 // Stat returns file information beneath the fixture root.
 func (r rootedReader) Stat(p string) (fs.FileInfo, error) { return os.Stat(r.path(p)) }
@@ -175,6 +178,38 @@ func TestExecIsolationAndSecretRedaction(t *testing.T) {
 	}
 }
 
+func TestExecCancellationStopsInstallerChildren(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := (ExecRunner{}).Run(ctx, Command{
+			Name: "/bin/sh", Args: []string{"-c", `touch "$TEST_DIR/started"; (sleep 0.5; touch "$TEST_DIR/late-write") & wait`},
+			IsolatedEnv: true, Env: []string{"TEST_DIR=" + dir},
+		})
+		done <- err
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "started")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("test process failed to start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err == nil {
+		t.Fatal("cancelled installer reported success")
+	}
+	time.Sleep(600 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(dir, "late-write")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("installer child kept writing after cancellation")
+	}
+}
+
 // TestSnapshotRaceDetection checks that snapshot comparison detects ownership and file changes.
 func TestSnapshotRaceDetection(t *testing.T) {
 	a := freshSnapshot()
@@ -205,17 +240,27 @@ func TestUnsupportedDistributionAndEnvironment(t *testing.T) {
 	}
 }
 
-// TestServiceUnit checks role-specific startup commands and repeatable unit rendering.
-func TestServiceUnit(t *testing.T) {
-	for _, role := range []string{"server", "agent"} {
-		unit := string(serviceUnit(role))
-		for _, want := range []string{"Delegate=yes", "KillMode=process", "--config " + ConfigPath, "ExecStart=" + K3sPath + " " + role} {
-			if !strings.Contains(unit, want) {
-				t.Fatal(unit)
-			}
-		}
+func TestAdditionalK3sServicesBlockLifecycle(t *testing.T) {
+	r := fixtureHost(t)
+	put(t, r, "/etc/systemd/system/k3s-other.service", []byte("another installation"))
+	s, err := Inspect(context.Background(), r, &effects{}, testConfig(t), freshSnapshot())
+	if err != nil || len(s.Problems) != 1 || !strings.Contains(s.Problems[0], "additional K3s service") {
+		t.Fatal("shared service namespace was not blocked", err)
 	}
-	if !reflect.DeepEqual(serviceUnit("server"), serviceUnit("server")) {
-		t.Fatal("unstable service unit")
+}
+
+func TestRepeatedUninstallWithEmptyDataMount(t *testing.T) {
+	r := fixtureHost(t)
+	if err := os.MkdirAll(r.path("/var/lib/rancher/k3s"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Inspect(context.Background(), r, &effects{}, testConfig(t), freshSnapshot())
+	if err != nil || !s.Existing || !s.EmptyDataOnly || checkUninstall(s) != nil {
+		t.Fatal("empty retained data directory prevents repeat uninstall", err)
+	}
+	put(t, r, K3sPath, []byte("unmanaged binary"))
+	s, err = Inspect(context.Background(), r, &effects{}, testConfig(t), freshSnapshot())
+	if err != nil || s.EmptyDataOnly || checkUninstall(s) == nil {
+		t.Fatal("unmanaged installation treated as empty", err)
 	}
 }

@@ -254,7 +254,7 @@ func (c Config) Validate() error {
 	}
 
 	// Reconciliation must never overwrite the file that supplies the join token.
-	for _, path := range []string{ConfigPath, MarkerPath, StatePath, KubeconfigPath, K3sPath, ModulesPath, SysctlPath, unitPath("server"), unitPath("agent")} {
+	for _, path := range []string{ConfigPath, MarkerPath, StatePath, KubeconfigPath, K3sPath, ModulesPath, SysctlPath, unitPath("server"), unitPath("agent"), unitPath("server") + ".env", unitPath("agent") + ".env", uninstallPath("server"), uninstallPath("agent"), KillallPath, RemovalScriptPath, RemovalKillallPath} {
 		if n.TokenFile != "" && filepath.Clean(n.TokenFile) == path {
 			return errors.New("node.token_file must not overlap an AK3S-managed file")
 		}

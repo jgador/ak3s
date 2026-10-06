@@ -14,7 +14,7 @@ import (
 // Bundle owns verified artifacts and rendered resources in a disposable directory.
 type Bundle struct {
 	Dir, Helm                           string
-	K3s                                 []byte
+	K3s, Installer                      []byte
 	Values, Charts, Rendered, Manifests map[string][]byte
 	Releases                            map[string]string
 }
@@ -69,7 +69,11 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 	if arch != "amd64" && arch != "arm64" {
 		return nil, fmt.Errorf("unsupported architecture %s", arch)
 	}
-	if p.InstallBinary {
+	if p.RunInstaller {
+		b.Installer, err = n.Downloads.Get(ctx, p.Pins.Installer.URL(), p.Pins.Installer.SHA256)
+		if err != nil {
+			return nil, err
+		}
 		b.K3s, err = n.Downloads.Get(ctx, p.Pins.K3sURL(arch), p.Pins.K3sSHA256[arch])
 		if err != nil {
 			return nil, err

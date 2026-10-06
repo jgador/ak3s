@@ -58,13 +58,13 @@ func TestRealReconcileOrderAndIdempotency(t *testing.T) {
 	b := &Bundle{Dir: t.TempDir(), Helm: "/fake/helm", Manifests: map[string][]byte{"issuers.yaml": []byte("issuers"), "headlamp-rbac.yaml": []byte("headlamp"), "metrics-rbac.yaml": []byte("metrics")}}
 	for iteration := 0; iteration < 2; iteration++ {
 		e := &effects{}
-		if err = reconcile(context.Background(), p, b, e, e.write); err != nil {
+		if err = reconcile(context.Background(), p, b, e, e.write, nil); err != nil {
 			t.Fatal(err)
 		}
-		if e.has("restart") || e.has("/bin/k3s --version") {
+		if e.has("restart") || e.has("/bin/k3s --version") || e.has("/bin/sh") {
 			t.Fatal("unchanged node restarted")
 		}
-		if !e.has("systemctl start k3s") || !e.has("wait --for=condition=Ready node/node1") {
+		if !e.has("wait --for=condition=Ready node/node1") {
 			t.Fatal("readiness check missing")
 		}
 		helmCalls := 0
@@ -90,7 +90,7 @@ func TestRealReconcileOrderAndIdempotency(t *testing.T) {
 		if helmCalls != 6 || certIndex < 0 || issuerIndex <= certIndex {
 			t.Fatal("bad platform ordering")
 		}
-		if len(e.states) != 2 || !e.states[0].PendingRestart || e.states[1].PendingRestart {
+		if len(e.states) != 2 || e.states[0].PendingRestart || e.states[1].PendingRestart {
 			t.Fatal("restart checkpoint wrong", e.states)
 		}
 	}
@@ -123,7 +123,7 @@ func TestReconcileWaitsForNodeRegistration(t *testing.T) {
 		}
 		return e.Run(ctx, cmd)
 	})
-	if err = reconcile(context.Background(), p, b, runner, e.write); err != nil {
+	if err = reconcile(context.Background(), p, b, runner, e.write, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !ready || !e.has("upgrade --install nginx-ingress") {
@@ -148,14 +148,14 @@ func TestReconcileStopsBeforeChartsOnNodeFailure(t *testing.T) {
 	} {
 		t.Run(stage.message, func(t *testing.T) {
 			e := &effects{failCommand: stage.command}
-			err := reconcile(context.Background(), p, b, e, e.write)
+			err := reconcile(context.Background(), p, b, e, e.write, nil)
 			if err == nil || !strings.Contains(err.Error(), stage.message) {
 				t.Fatalf("missing failure context: %v", err)
 			}
 			if e.has("upgrade --install") {
 				t.Fatal("installed charts after a node wait failed")
 			}
-			if len(e.states) != 1 || !e.states[0].PendingRestart {
+			if len(e.states) != 1 || e.states[0].PendingRestart {
 				t.Fatal("cleared restart checkpoint before node readiness", e.states)
 			}
 		})
@@ -167,10 +167,10 @@ func TestReconcileStopsOnFailures(t *testing.T) {
 	c := testConfig(t)
 	p, _ := BuildPlan(c, testPins(t), managedSnapshot(t, c), "apply")
 	b := &Bundle{Dir: t.TempDir(), Helm: "/fake/helm", Manifests: map[string][]byte{}}
-	for _, failure := range []string{"apt-get update", "modprobe overlay", "sysctl -p", "systemctl enable", "upgrade --install nginx-ingress", "upgrade --install cert-manager"} {
+	for _, failure := range []string{"apt-get update", "modprobe overlay", "sysctl -p", "upgrade --install nginx-ingress", "upgrade --install cert-manager"} {
 		t.Run(failure, func(t *testing.T) {
 			e := &effects{failCommand: failure}
-			if err := reconcile(context.Background(), p, b, e, e.write); err == nil {
+			if err := reconcile(context.Background(), p, b, e, e.write, nil); err == nil {
 				t.Fatal("failure ignored")
 			}
 			if e.has("upgrade --install headlamp") {
@@ -183,7 +183,7 @@ func TestReconcileStopsOnFailures(t *testing.T) {
 	}
 	for _, path := range []string{MarkerPath, StatePath, ConfigPath} {
 		e := &effects{failWrite: path}
-		if err := reconcile(context.Background(), p, b, e, e.write); err == nil {
+		if err := reconcile(context.Background(), p, b, e, e.write, nil); err == nil {
 			t.Fatal("write failure ignored")
 		}
 		if e.has("systemctl") {
@@ -192,12 +192,12 @@ func TestReconcileStopsOnFailures(t *testing.T) {
 	}
 }
 
-// TestBinaryVerifiedBeforeReplacement checks that corrupt binaries are rejected before being written or started.
-func TestBinaryVerifiedBeforeReplacement(t *testing.T) {
+// TestUnverifiedBundleCannotStartK3s rejects a bundle before writing or starting K3s.
+func TestUnverifiedBundleCannotStartK3s(t *testing.T) {
 	c := testConfig(t)
 	p, _ := BuildPlan(c, testPins(t), freshSnapshot(), "install")
 	e := &effects{}
-	err := reconcile(context.Background(), p, &Bundle{K3s: []byte("corrupt")}, e, e.write)
+	err := reconcile(context.Background(), p, &Bundle{K3s: []byte("corrupt")}, e, e.write, nil)
 	if err == nil || e.has("systemctl") {
 		t.Fatal("corrupt binary executed")
 	}
@@ -218,7 +218,7 @@ func TestAgentReconcileDoesNotRunPlatform(t *testing.T) {
 	c.APIEndpoint = "10.0.0.1"
 	p, _ := BuildPlan(c, testPins(t), managedSnapshot(t, c), "apply")
 	e := &effects{}
-	if err := reconcile(context.Background(), p, &Bundle{}, e, e.write); err != nil {
+	if err := reconcile(context.Background(), p, &Bundle{}, e, e.write, nil); err != nil {
 		t.Fatal(err)
 	}
 	if e.has("kubectl") || !e.has("systemctl is-active --quiet k3s-agent") {

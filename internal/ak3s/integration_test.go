@@ -10,6 +10,18 @@ import (
 	"testing"
 )
 
+// TestPinnedK3sArtifacts verifies both upstream release binaries without executing them.
+func TestPinnedK3sArtifacts(t *testing.T) {
+	pins := testPins(t)
+	for _, arch := range []string{"amd64", "arm64"} {
+		t.Run(arch, func(t *testing.T) {
+			if _, err := (HTTPDownloader{}).Get(context.Background(), pins.K3sURL(arch), pins.K3sSHA256[arch]); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 // TestPinnedCharts downloads the release-pinned Helm binary and chart archives,
 // verifies their checksums, and runs real Helm schema and template validation. It
 // needs outbound HTTPS but no root, Docker, systemd, or cluster.

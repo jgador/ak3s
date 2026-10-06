@@ -37,6 +37,7 @@ Commands:
   install   Install or reconcile this node and its platform
   apply     Reconcile the desired state (same safety checks as install)
   upgrade   Apply this AK3S release's pinned versions; allow a safe K3s upgrade
+  uninstall Remove local K3s and its data using the generated upstream script
   status    Read this node's state and cluster resources
   config    Print merged configuration, or --defaults for embedded defaults
   render    Validate and render K3s, Helm values and Kubernetes resources
@@ -44,9 +45,10 @@ Commands:
 
 Options (after command):
   --config PATH    YAML overrides (otherwise /etc/ak3s/values.yaml, if present)
-  --dry-run        Plan install/apply/upgrade without persistent changes
+  --dry-run        Plan install/apply/upgrade/uninstall without persistent changes
   --output DIR     Write render results to a directory (render only)
   --defaults       Print embedded defaults (config only)
+  --yes            Confirm local cluster and volume deletion (uninstall only)
 
 No cluster is selected from KUBECONFIG or the current kubectl context.
 `
@@ -59,17 +61,20 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 	command := args[0]
 	switch command {
-	case "install", "apply", "upgrade", "status", "config", "render", "version":
+	case "install", "apply", "upgrade", "status", "config", "render", "version", "uninstall":
 	default:
 		return fmt.Errorf("unknown command %q; run ak3s help", command)
 	}
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	f.SetOutput(a.Err)
 	var path, output string
-	var dry, defaults bool
+	var dry, defaults, yes bool
 	f.StringVar(&path, "config", "", "values.yaml overrides; omitted settings use defaults")
-	if command == "install" || command == "apply" || command == "upgrade" {
+	if command == "install" || command == "apply" || command == "upgrade" || command == "uninstall" {
 		f.BoolVar(&dry, "dry-run", false, "make no persistent changes")
+	}
+	if command == "uninstall" {
+		f.BoolVar(&yes, "yes", false, "confirm deletion of local cluster data and volumes")
 	}
 	if command == "render" {
 		f.StringVar(&output, "output", "", "output directory; stdout if omitted")
@@ -91,7 +96,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		return err
 	}
 	if command == "version" {
-		fmt.Fprintf(a.Out, "ak3s %s (%s)\nk3s %s\nhelm %s\n", Version, Commit, pins.K3s, pins.Helm)
+		fmt.Fprintf(a.Out, "ak3s %s (%s)\nk3s %s\nk3s installer %s\nhelm %s\n", Version, Commit, pins.K3s, pins.Installer.Commit, pins.Helm)
 		for _, c := range pins.Charts {
 			fmt.Fprintf(a.Out, "%s %s\n", c.Release, c.Version)
 		}
@@ -166,9 +171,44 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
-	snapshot, err := a.Host.Inspect(ctx, c)
+	inspectionConfig := c
+	if command == "uninstall" {
+		// Upstream may already have removed a token stored inside its data
+		// directory. Removal depends on ownership and script verification.
+		inspectionConfig.Node.TokenFile = ""
+	}
+	snapshot, err := a.Host.Inspect(ctx, inspectionConfig)
 	if err != nil {
 		return err
+	}
+	if command == "uninstall" {
+		if err = checkUninstall(snapshot); err != nil {
+			return err
+		}
+		if snapshot.State == nil {
+			fmt.Fprintln(a.Out, "No AK3S installation remains.")
+			return nil
+		}
+		fmt.Fprintf(a.Out, "Run %s: delete local K3s datastore, workloads and local volumes. External storage and /etc/ak3s/values.yaml remain.\n", uninstallPath(snapshot.State.Node.Role))
+		if dry {
+			fmt.Fprintln(a.Out, "Dry-run complete: no persistent changes.")
+			return nil
+		}
+		if !yes {
+			return errors.New("uninstall deletes local cluster data and volumes; back up first, then pass --yes")
+		}
+		if !snapshot.Root {
+			return errors.New("run uninstall as root")
+		}
+		host, ok := a.Host.(Uninstaller)
+		if !ok {
+			return errors.New("host does not support uninstall")
+		}
+		if err = host.Uninstall(ctx, snapshot); err != nil {
+			return err
+		}
+		fmt.Fprintln(a.Out, "K3s removed. AK3S CLI and operator overrides remain.")
+		return nil
 	}
 	if command == "status" {
 		return a.status(ctx, c, pins, snapshot)

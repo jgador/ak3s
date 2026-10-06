@@ -103,7 +103,7 @@ sudo ak3s upgrade
 sudo ak3s status
 ```
 
-Upgrade applies the installed CLI's pinned versions; it does not update the CLI itself. Downgrades and skipped Kubernetes minor versions are refused. Upgrade redundant control-plane servers one at a time and check readiness and etcd quorum (a majority of servers available) after each.
+Upgrade applies the installed CLI's pinned versions; it does not update the CLI itself. Downgrades and skipped Kubernetes minor versions are refused. Upgrade servers first, one at a time, and check readiness and etcd quorum (a majority of servers available) after each; upgrade agents afterwards. The official installer replaces the binary and updates the service using the same role and configuration file. It does not drain or cordon the node. For workloads sensitive to brief API outages, plan drain/cordon and uncordon steps as described in [upstream manual upgrades](https://docs.k3s.io/upgrades/manual).
 
 Dry-run validates and previews changes; it cannot prove runtime readiness or certificate issuance. Failed Helm releases roll back individually, so fix failures and rerun.
 
@@ -132,4 +132,41 @@ Pending ServiceLB pods: check occupied ports 80 and 443. Failed certificates: ch
 
 ## Older installations
 
-Before migrating an Ansible-managed AK3S server, back up and preserve its node identity, datastore, and token. Move settings into `/etc/ak3s/values.yaml` and review `install --dry-run`; use `upgrade` if K3s versions differ. Resolve custom systemd settings explicitly. AK3S refuses unmanaged K3s installations; do not remove ownership or state files to bypass checks.
+Follow the [migration guide](migration.md) for the previous Go-based release or older Ansible-managed nodes. Migration replaces the service in place and preserves cluster data, identity, and tokens. AK3S refuses unmanaged installations and unsupported custom settings; do not remove ownership or state files to bypass checks.
+
+## Removal
+
+Uninstalling stops local workloads and deletes the local K3s datastore, tokens,
+configuration, and local-path persistent volumes. Back up anything you need
+first. External datastores and external volumes are outside this operation.
+
+```bash
+sudo ak3s uninstall --dry-run
+sudo ak3s uninstall --yes
+```
+
+AK3S checks ownership and the fingerprints of the upstream-generated scripts,
+then runs `/usr/local/bin/k3s-uninstall.sh` for a server or
+`/usr/local/bin/k3s-agent-uninstall.sh` for an agent. These call the generated
+`k3s-killall.sh` helper. See [upstream removal guidance](https://docs.k3s.io/installation/uninstall).
+AK3S does not implement its own process, mount, firewall, or K3s data deletion.
+Use this command for AK3S nodes so its lock, recovery state, and host settings
+are also handled.
+
+The AK3S CLI, `/etc/ak3s/values.yaml`, operator token files outside K3s's data
+and configuration directories, and backups are retained. Removing AK3S's sysctl
+file does not reset current kernel settings; no previous baseline is assumed.
+An already removed installation is a successful repeated run.
+
+If removal fails or leaves local data, AK3S retains its state and private copies
+of the unmodified generated scripts under `/var/lib/ak3s/`. Resolve the reported
+problem and rerun `uninstall --yes`; it can recover after the upstream script
+deletes itself. Apply and upgrade are blocked while removal is pending. Older
+installations must complete [migration](migration.md) before this removal command
+can verify their generated scripts. Do not run an installer just to obtain
+removal scripts during a cleanup operation.
+
+For a node that will rejoin another running cluster, delete its Node from a
+remaining server so the node-password secret is removed, following
+[upstream node registration](https://docs.k3s.io/architecture#how-agent-node-registration-works).
+AK3S removal acts on the local host and does not make that cluster-wide change.

@@ -28,11 +28,23 @@ var Commit = "unknown"
 
 // Pins identifies the exact binaries and ordered Helm charts included in a release.
 type Pins struct {
+	Installer  InstallerPin      `yaml:"k3s_installer"`
 	K3s        string            `yaml:"k3s"`
 	K3sSHA256  map[string]string `yaml:"k3s_sha256"`
 	Helm       string            `yaml:"helm"`
 	HelmSHA256 map[string]string `yaml:"helm_sha256"`
 	Charts     []Chart           `yaml:"charts"`
+}
+
+// InstallerPin identifies an unmodified upstream install.sh revision.
+type InstallerPin struct {
+	Commit string `yaml:"commit"`
+	SHA256 string `yaml:"sha256"`
+}
+
+// URL returns the immutable upstream installer source URL.
+func (p InstallerPin) URL() string {
+	return "https://raw.githubusercontent.com/k3s-io/k3s/" + p.Commit + "/install.sh"
 }
 
 // Chart describes a pinned chart archive, its release destination, and default values.
@@ -59,6 +71,9 @@ func LoadPins() (Pins, error) {
 	d.KnownFields(true)
 	if err = d.Decode(&p); err != nil {
 		return p, err
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(p.Installer.Commit) || !validSHA(p.Installer.SHA256) {
+		return p, errors.New("missing or invalid pinned K3s installer")
 	}
 	if _, err = ParseK3sVersion(p.K3s); err != nil {
 		return p, err

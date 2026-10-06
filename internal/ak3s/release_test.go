@@ -119,7 +119,7 @@ func TestPrepareUsesRealRenderingPathAndIsolatedWorkspace(t *testing.T) {
 	for _, existing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "fresh", true: "existing"}[existing], func(t *testing.T) {
 			c := testConfig(t)
-			p := Plan{Config: c, Pins: testPins(t), Snapshot: freshSnapshot(), InstallBinary: true}
+			p := Plan{Config: c, Pins: testPins(t), Snapshot: freshSnapshot(), InstallBinary: true, RunInstaller: true}
 			p.Snapshot.Managed = existing
 			p.Snapshot.Kubeconfig = existing
 			p.Snapshot.ServiceActive = existing
@@ -150,7 +150,7 @@ func TestPrepareUsesRealRenderingPathAndIsolatedWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 			dir := b.Dir
-			if downloads != 8 || len(b.Rendered) != 6 || len(b.Manifests) != 3 {
+			if downloads != 9 || len(b.Rendered) != 6 || len(b.Manifests) != 3 {
 				t.Fatal("incomplete preparation")
 			}
 			serverDryRuns := 0

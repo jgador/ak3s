@@ -208,3 +208,31 @@ Repeat checks 1–6 on a disposable VPS with its actual configuration. The local
 5. Reboot the VPS and repeat readiness and application checks. Restore your actual datastore, token, configuration, state, and application volumes into a separate disposable VPS using the pinned K3s restore procedure. A WSL export does not validate provider snapshots or restoration of volumes from backups stored outside the server.
 
 After validation, remove the public demo and test data and deploy your own workloads. Passing the local and VPS checks validates this single-server test setup; it does not establish capacity, high availability, or backup retention for a production workload.
+
+## Migration and removal checks
+
+Use a disposable copy of a previous AK3S installation. Save node UIDs, a
+persistent-volume marker, and private fingerprints of the datastore/token before
+following [migration](migration.md). Confirm the node identity and volume marker
+survive, the service uses the official unit, and the role-specific uninstall
+script and `k3s-killall.sh` exist. Check token continuity; a running datastore
+naturally changes, so test its contents and restore behavior rather than expecting
+an unchanged database hash. Repeat `apply` and confirm the service's process ID
+and start time remain unchanged. Stop or disable the service, rerun `apply`, and
+confirm it becomes active and enabled again. Repeat with an interrupted installer.
+
+After completing the storage and backup checks, test removal on this disposable
+node only:
+
+```bash
+sudo ak3s uninstall --dry-run
+sudo ak3s uninstall --yes
+sudo ak3s uninstall --yes
+```
+
+Verify that K3s services, processes, mounts, networking, local datastore, and
+local-path volumes are removed. Check that the AK3S CLI and operator overrides
+remain. Test interrupted removal on another disposable copy, then repeat the
+same removal command. Do not accept a successful exit alone as evidence of
+network or mount cleanup. These live checks remain necessary before release;
+simulated tests and shell syntax checks do not prove runtime cleanup.

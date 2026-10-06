@@ -56,14 +56,17 @@ func (h *NativeHost) Apply(ctx context.Context, p Plan, b *Bundle) error {
 	if !sameSnapshot(p.Snapshot, fresh) {
 		return errors.New("host changed while planning; rerun AK3S")
 	}
-	return reconcile(ctx, p, b, h.Runner, AtomicWrite)
+	return reconcile(ctx, p, b, h.Runner, AtomicWrite, h.Reader)
 }
 
 // reconcile changes the host through commands and file writes.
 // Tests verify this execution order with simulated operations and no root privileges.
-func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func(string, []byte, fs.FileMode) error) error {
+func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func(string, []byte, fs.FileMode) error, reader Reader) error {
 	var err error
-	if p.InstallBinary {
+	if p.RunInstaller {
+		if err := Verify(b.Installer, p.Pins.Installer.SHA256); err != nil {
+			return err
+		}
 		if err := Verify(b.K3s, p.Pins.K3sSHA256[p.Snapshot.Arch]); err != nil {
 			return err
 		}
@@ -75,7 +78,7 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 	if err = run("apt-get", "update"); err != nil {
 		return err
 	}
-	if _, err = runner.Run(ctx, Command{Name: "apt-get", Args: []string{"install", "-y", "ca-certificates", "iptables", "kmod"}, Env: []string{"DEBIAN_FRONTEND=noninteractive"}}); err != nil {
+	if _, err = runner.Run(ctx, Command{Name: "apt-get", Args: []string{"install", "-y", "ca-certificates", "curl", "iptables", "kmod"}, Env: []string{"DEBIAN_FRONTEND=noninteractive"}}); err != nil {
 		return err
 	}
 	for _, module := range []string{"overlay", "br_netfilter"} {
@@ -91,7 +94,7 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 	if err = write(StatePath, p.StateJSON(), 0600); err != nil {
 		return err
 	}
-	for _, path := range []string{ModulesPath, SysctlPath, ConfigPath, unitPath(p.Config.Node.Role)} {
+	for _, path := range []string{ModulesPath, SysctlPath, ConfigPath} {
 		mode := fs.FileMode(0644)
 		if path == ConfigPath {
 			mode = 0600
@@ -103,28 +106,33 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 	if err = run("sysctl", "-p", SysctlPath); err != nil {
 		return err
 	}
-	if p.InstallBinary {
-		if err = Verify(b.K3s, p.Pins.K3sSHA256[p.Snapshot.Arch]); err != nil {
+	if p.RunInstaller {
+		if err = installK3s(ctx, p, b, runner, write); err != nil {
 			return err
 		}
-		if err = write(K3sPath, b.K3s, 0755); err != nil {
+		installed, err := reader.ReadFile(K3sPath)
+		if err != nil {
 			return err
 		}
-	}
-	if err = run("systemctl", "daemon-reload"); err != nil {
-		return err
+		if err = Verify(installed, p.Pins.K3sSHA256[p.Snapshot.Arch]); err != nil {
+			return fmt.Errorf("verify installed K3s: %w", err)
+		}
+		unit, err := reader.ReadFile(unitPath(p.Config.Node.Role))
+		if err != nil {
+			return err
+		}
+		p.State.ServiceSHA256 = fingerprint(unit)
+		p.State.GeneratedScripts, err = generatedScripts(reader, p.Config.Node.Role)
+		if err != nil {
+			return err
+		}
+		// Retain verified removal scripts even if readiness fails afterwards.
+		// PendingRestart remains set until the local readiness checks succeed.
+		if err = write(StatePath, p.StateJSON(), 0600); err != nil {
+			return err
+		}
 	}
 	service := serviceName(p.Config.Node.Role)
-	if err = run("systemctl", "enable", service); err != nil {
-		return err
-	}
-	action := "start"
-	if p.Restart {
-		action = "restart"
-	}
-	if err = run("systemctl", action, service); err != nil {
-		return err
-	}
 	if p.Config.Node.Role == "agent" {
 		if err = run("systemctl", "is-active", "--quiet", service); err != nil {
 			return err
@@ -191,7 +199,7 @@ func upgradeCommand(p Plan) string {
 
 // sameSnapshot detects relevant host changes between planning and lock acquisition.
 func sameSnapshot(a, b Snapshot) bool {
-	if a.K3sVersion != b.K3sVersion || a.Managed != b.Managed || a.Existing != b.Existing || a.TokenSHA256 != b.TokenSHA256 || a.ServiceActive != b.ServiceActive || a.Hostname != b.Hostname || a.Role != b.Role {
+	if a.K3sVersion != b.K3sVersion || a.Managed != b.Managed || a.Existing != b.Existing || a.DataPresent != b.DataPresent || a.EmptyDataOnly != b.EmptyDataOnly || a.TokenSHA256 != b.TokenSHA256 || a.ServiceActive != b.ServiceActive || a.ServiceEnabled != b.ServiceEnabled || a.Hostname != b.Hostname || a.Role != b.Role || len(a.Files) != len(b.Files) {
 		return false
 	}
 	for path, data := range a.Files {

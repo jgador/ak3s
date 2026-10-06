@@ -1,6 +1,6 @@
 # AK3S
 
-AK3S is an alternative to Azure Kubernetes Service (AKS) for small deployments that need to keep costs low. It installs K3s and essential platform services on an existing Linux VPS.
+AK3S is an alternative to Azure Kubernetes Service (AKS) for small deployments that need to keep costs low. It configures upstream K3s and bundles essential platform services on an existing Linux VPS. The official K3s installer manages installation, upgrades, and services; its generated scripts manage removal.
 
 A **VPS (virtual private server)** is a virtual machine rented from a hosting provider, with allocated CPU, RAM, disk, networking, and root access. AK3S works inside a VPS that meets its [requirements](docs/vps.md), regardless of provider; Hetzner Cloud is one example.
 
@@ -53,7 +53,9 @@ sudo ak3s install
 sudo ak3s status
 ```
 
-The installer downloads the AK3S binary and verifies its checksum; Go and a repository checkout are unnecessary. Its command-line interface (CLI) installs the pinned K3s binary and uses Helm, a Kubernetes package manager, to install the pinned platform charts. Dry-run previews changes without changing the host or cluster.
+The installer downloads the AK3S binary and verifies its checksum; Go and a repository checkout are unnecessary. Its command-line interface (CLI) verifies the pinned official K3s installer and binary, runs that installer, waits for readiness, and uses Helm to install the pinned platform charts. Dry-run previews changes without changing the host or cluster.
+
+For existing AK3S nodes, follow the [migration guide](docs/migration.md). See [the K3s lifecycle](docs/k3s-lifecycle.md) for the underlying workflow and [removal](docs/operations.md#removal) for deliberate cluster deletion.
 
 For an application, download [app.yaml](examples/app.yaml), change its hostname, point DNS to the VPS, and apply it:
 

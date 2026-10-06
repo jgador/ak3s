@@ -1,6 +1,8 @@
 # Architecture
 
-AK3S keeps infrastructure costs low by running a K3s control plane, applications, and the [bundled components](../README.md#whats-installed) on one existing [Linux VPS](vps.md#what-is-a-vps). The CLI runs on that server and installs checksum-verified, pinned binaries and Helm charts. It uses Linux and Kubernetes interfaces rather than provider-specific APIs.
+AK3S keeps infrastructure costs low by running a K3s control plane, applications, and the [bundled components](../README.md#whats-installed) on one existing [Linux VPS](vps.md#what-is-a-vps). The CLI runs on that server, configures K3s, delegates its host lifecycle to the official installer and generated uninstall scripts, and installs checksum-verified, pinned Helm charts. It uses Linux and Kubernetes interfaces rather than provider-specific APIs.
+
+See [how AK3S uses upstream K3s](k3s-lifecycle.md) for the division of responsibilities and the installation sequence.
 
 ## Traffic and services
 

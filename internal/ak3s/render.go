@@ -129,34 +129,4 @@ func ValidateManifests(data []byte) error {
 	return nil
 }
 
-// serviceUnit runs K3s with the managed configuration and a service type suited to its role.
-func serviceUnit(role string) []byte {
-	serviceType := "notify"
-	if role == "agent" {
-		serviceType = "exec"
-	}
-	return []byte(fmt.Sprintf(`[Unit]
-Description=AK3S Kubernetes %s
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=%s
-EnvironmentFile=-/etc/default/%%N
-EnvironmentFile=-/etc/sysconfig/%%N
-ExecStart=/usr/local/bin/k3s %s --config /etc/rancher/k3s/config.yaml
-KillMode=process
-Delegate=yes
-LimitNOFILE=1048576
-LimitNPROC=infinity
-LimitCORE=infinity
-TasksMax=infinity
-TimeoutStartSec=0
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-`, role, serviceType, role))
-}
 func kubeVersion(p Pins) string { return strings.Split(strings.TrimPrefix(p.K3s, "v"), "+")[0] }
