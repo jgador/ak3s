@@ -42,15 +42,16 @@ type dashboardTool struct {
 }
 type dashboardData struct {
 	CollectedAt string `json:"collectedAt"`
+	Access      string `json:"access"`
 	Cluster     struct {
-		Name              string          `json:"name"`
-		APIEndpoint       string          `json:"apiEndpoint"`
-		K3sVersion        string          `json:"k3sVersion"`
-		KubernetesVersion string          `json:"kubernetesVersion"`
-		AK3SVersion       string          `json:"ak3sVersion"`
-		Datastore         string          `json:"datastore"`
-		Health            string          `json:"health"`
-		Nodes             []dashboardNode `json:"nodes"`
+		Name                  string          `json:"name"`
+		KubernetesAPIEndpoint string          `json:"kubernetesApiEndpoint"`
+		K3sVersion            string          `json:"k3sVersion"`
+		KubernetesVersion     string          `json:"kubernetesVersion"`
+		AK3SVersion           string          `json:"ak3sVersion"`
+		Datastore             string          `json:"datastore"`
+		Health                string          `json:"health"`
+		Nodes                 []dashboardNode `json:"nodes"`
 	} `json:"cluster"`
 	Components    []dashboardComponent   `json:"components"`
 	Tools         []dashboardTool        `json:"tools"`
@@ -183,7 +184,7 @@ func (a *App) dashboardSnapshot(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	metadata.ClusterName, metadata.APIEndpoint = state.ClusterName, endpoint
+	metadata.ClusterName, metadata.KubernetesAPIEndpoint = state.ClusterName, endpoint
 	metadata.AK3SVersion, metadata.Datastore = state.AK3SVersion, state.Node.Datastore
 	metadata.NodeName = state.Node.Name
 	return json.NewEncoder(a.Out).Encode(dashboardProjection(metadata, version, nodes, workloads))
@@ -191,7 +192,7 @@ func (a *App) dashboardSnapshot(ctx context.Context, path string) error {
 
 func dashboardProjection(metadata dashboardMetadata, version dashboardVersion, nodes, workloads dashboardResources) dashboardData {
 	d := dashboardData{CollectedAt: time.Now().UTC().Format(time.RFC3339), Components: []dashboardComponent{}, Tools: []dashboardTool{}}
-	d.Cluster.Name, d.Cluster.APIEndpoint = metadata.ClusterName, metadata.APIEndpoint
+	d.Cluster.Name, d.Cluster.KubernetesAPIEndpoint = metadata.ClusterName, metadata.KubernetesAPIEndpoint
 	d.Cluster.AK3SVersion, d.Cluster.Datastore = metadata.AK3SVersion, metadata.Datastore
 	d.Cluster.KubernetesVersion, d.Cluster.Health = version.GitVersion, "healthy"
 	d.Cluster.Nodes = []dashboardNode{}
@@ -267,6 +268,18 @@ func dashboardProjection(metadata dashboardMetadata, version dashboardVersion, n
 		{ID: "metrics", Name: "VictoriaMetrics", Category: "MONITORING", Description: "Explore cluster metrics.", URL: "http://127.0.0.1:8428/vmui/", PortForward: "sudo k3s kubectl -n observability port-forward service/victoria-metrics 8428:8428", Health: health["victoria-metrics"]},
 		{ID: "logs", Name: "VictoriaLogs", Category: "LOGS & SEARCH", Description: "Search application logs.", URL: "http://127.0.0.1:9428/select/vmui/", PortForward: "sudo k3s kubectl -n observability port-forward service/victoria-logs 9428:9428", Health: health["victoria-logs"]},
 	}
+	d.Access = "local"
+	if metadata.DashboardSharedPaths {
+		// CLI snapshots also serve Vite, where tools still use direct forwards.
+		d.Tools[0].URL += "/headlamp/"
+	}
+	if metadata.DashboardHostname != "" {
+		d.Access = "https"
+		for i := range d.Tools {
+			d.Tools[i].URL = "https://" + metadata.DashboardHostname + "/" + d.Tools[i].ID
+			d.Tools[i].PortForward = ""
+		}
+	}
 	d.Configuration = metadata.Configuration
 	return d
 }
@@ -301,7 +314,7 @@ func dashboardOverrideCount(m map[string]any) int {
 // are replaced as a whole so new nested credential keys cannot escape redaction.
 func dashboardConfigYAML(m map[string]any) string {
 	result := map[string]any{}
-	for _, key := range []string{"cluster_name", "api_endpoint", "tls_sans", "acme_environment", "storage_class", "metrics_retention", "metrics_storage", "logs_retention", "logs_storage", "logs_max_disk", "headlamp_hostname", "dashboard_image", "platform"} {
+	for _, key := range []string{"cluster_name", "kubernetes_api_endpoint", "tls_sans", "acme_environment", "storage_class", "metrics_retention", "metrics_storage", "logs_retention", "logs_storage", "logs_max_disk", "headlamp_hostname", "dashboard_hostname", "dashboard_shared_paths", "dashboard_auth_secret", "dashboard_image", "platform"} {
 		if value, ok := m[key]; ok {
 			result[key] = value
 		}

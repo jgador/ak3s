@@ -99,6 +99,42 @@ func TestRealReconcileOrderAndIdempotency(t *testing.T) {
 	}
 }
 
+func TestReconcileSharedDashboardIngressLifecycle(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, fail := range []bool{false, true} {
+			c := testConfig(t)
+			if enabled {
+				c.DashboardHostname = "ak3s.example.com"
+			}
+			p, err := BuildPlan(c, testPins(t), managedSnapshot(t, c), "apply")
+			if err != nil {
+				t.Fatal(err)
+			}
+			b := &Bundle{Dir: t.TempDir(), Helm: "/fake/helm", Manifests: map[string][]byte{}}
+			e := &effects{}
+			if fail {
+				e.failCommand = "delete ingress"
+			}
+			err = reconcile(context.Background(), p, b, e, e.write, nil)
+			if !enabled && fail {
+				if err == nil || !strings.Contains(err.Error(), "remove disabled dashboard ingress") {
+					t.Fatal("ingress removal failure ignored")
+				}
+				continue
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if e.has("delete ingress") == enabled {
+				t.Fatal("ingress removal does not follow configuration")
+			}
+			if !enabled && !e.has("--selector=app.kubernetes.io/managed-by=ak3s,app.kubernetes.io/name=ak3s-dashboard --ignore-not-found") {
+				t.Fatal("ingress removal is not restricted to managed dashboard resources")
+			}
+		}
+	}
+}
+
 // TestReconcileWaitsForNodeRegistration simulates an API that becomes ready before its local node exists.
 func TestReconcileWaitsForNodeRegistration(t *testing.T) {
 	c := testConfig(t)
@@ -218,7 +254,7 @@ func TestAgentReconcileDoesNotRunPlatform(t *testing.T) {
 	c.Node.Role = "agent"
 	c.Node.Join = true
 	c.Node.TokenFile = "/root/token"
-	c.APIEndpoint = "10.0.0.1"
+	c.KubernetesAPIEndpoint = "10.0.0.1"
 	p, _ := BuildPlan(c, testPins(t), managedSnapshot(t, c), "apply")
 	e := &effects{}
 	if err := reconcile(context.Background(), p, &Bundle{}, e, e.write, nil); err != nil {

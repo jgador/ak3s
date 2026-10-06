@@ -16,9 +16,11 @@ var DashboardImage = ""
 var dashboardImageRE = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}|@sha256:[a-f0-9]{64})$`)
 
 type dashboardMetadata struct {
-	ClusterName, APIEndpoint, AK3SVersion, Datastore, NodeName string
-	Platform                                                   bool
-	Configuration                                              dashboardConfiguration
+	ClusterName, KubernetesAPIEndpoint, AK3SVersion, Datastore, NodeName string
+	DashboardHostname                                                    string
+	DashboardSharedPaths                                                 bool
+	Platform                                                             bool
+	Configuration                                                        dashboardConfiguration
 }
 
 type dashboardConfiguration struct {
@@ -52,14 +54,15 @@ func dashboardMetadataFor(c Config) (dashboardMetadata, error) {
 		path = "/etc/ak3s/values.yaml"
 	}
 	return dashboardMetadata{
-		ClusterName: c.ClusterName, APIEndpoint: "https://" + c.APIEndpoint + ":6443",
+		ClusterName: c.ClusterName, KubernetesAPIEndpoint: "https://" + c.KubernetesAPIEndpoint + ":6443",
 		AK3SVersion: Version, Datastore: c.Node.Datastore, NodeName: c.Node.Name, Platform: c.Platform,
+		DashboardHostname: c.DashboardHostname, DashboardSharedPaths: c.sharedDashboardPaths(),
 		Configuration: dashboardConfiguration{Path: path, OverrideCount: c.overrideCount,
 			EffectiveYAML: dashboardConfigYAML(effective), OverridesYAML: c.displayOverrides},
 	}, nil
 }
 
-// DashboardManifests renders the private dashboard and its sanitized configuration.
+// DashboardManifests renders the dashboard, sanitized configuration, and optional HTTPS ingress.
 func DashboardManifests(c Config) ([]byte, error) {
 	metadata, err := dashboardMetadataFor(c)
 	if err != nil {
@@ -78,6 +81,7 @@ func DashboardManifests(c Config) ([]byte, error) {
 		return nil, err
 	}
 	var out bytes.Buffer
-	err = t.Execute(&out, map[string]string{"Image": dashboardImage(c), "Metadata": string(data), "Checksum": fingerprint(data)})
+	err = t.Execute(&out, map[string]string{"Image": dashboardImage(c), "Metadata": string(data), "Checksum": fingerprint(data),
+		"Hostname": c.DashboardHostname, "AuthSecret": c.DashboardAuthSecret, "Issuer": "letsencrypt-" + c.ACMEEnvironment})
 	return out.Bytes(), err
 }

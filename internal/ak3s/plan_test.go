@@ -267,7 +267,7 @@ func TestHostNameChangeAndUnknownK3sSettings(t *testing.T) {
 // TestLegacyJoiningTokenMigration checks that inline join tokens migrate only to a matching token file.
 func TestLegacyJoiningTokenMigration(t *testing.T) {
 	c := testConfig(t)
-	c.APIEndpoint = "10.0.0.1"
+	c.KubernetesAPIEndpoint = "10.0.0.1"
 	c.Platform = false
 	c.Node.Role = "agent"
 	c.Node.Join = true

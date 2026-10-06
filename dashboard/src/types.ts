@@ -33,9 +33,10 @@ export interface ClusterTool {
 /** Sanitized display data collected from the local cluster. */
 export interface DashboardSnapshot {
   collectedAt: string;
+  access: "local" | "https" | "shared";
   cluster: {
     name: string | null;
-    apiEndpoint: string;
+    kubernetesApiEndpoint: string;
     k3sVersion: string;
     kubernetesVersion: string;
     ak3sVersion: string;

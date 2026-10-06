@@ -35,10 +35,22 @@ Without a checkout, forward the dashboard Service directly:
 sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n ak3s port-forward --address 127.0.0.1 service/dashboard 5173:80
 ```
 
-The server accepts local, same-origin requests. Kubernetes port-forward access
-provides the access boundary; there is no separate dashboard login. A
-NetworkPolicy blocks pod-network ingress. Keep the Service private. For a remote
-host, also use an SSH tunnel from your workstation.
+By default, the server accepts local, same-origin requests. Kubernetes
+port-forward permission provides access, and a NetworkPolicy blocks pod-network
+ingress. For a remote host, also use an SSH tunnel from your workstation.
+
+For shared HTTPS access, set `dashboard_hostname` and create the login Secret
+as described in [shared hostname access](../docs/operations.md#shared-hostname).
+The dashboard serves `/`, proxies VictoriaMetrics under `/metrics`, VictoriaLogs
+under `/logs`, and Headlamp under `/headlamp`. Dashboard, metrics, and logs share
+a username and password; Headlamp retains its Kubernetes login. The ingress
+uses cert-manager TLS, and the NetworkPolicy admits the NGINX controller.
+
+For the same paths through a local port-forward, set `dashboard_shared_paths: true`
+and leave `dashboard_hostname` empty. Forward only the dashboard Service and open
+`http://localhost:5173/metrics`, `/logs`, or `/headlamp`. This mode keeps the
+NetworkPolicy closed and requires no dashboard login Secret or HTTPS certificate.
+See [WSL shared-path testing](../docs/wsl-testing.md#test-shared-ui-paths).
 
 ## Build and deploy local source
 
@@ -125,13 +137,19 @@ collections for five seconds, and suppresses private errors. The readiness
 probe checks live data collection; the liveness probe checks the HTTP server.
 The static frontend alone does not provide live data.
 
-The tool cards use separate loopback forwards:
+By default, the tool cards use separate loopback forwards:
 
 | Tool | URL |
 | --- | --- |
 | Headlamp | `http://127.0.0.1:8080` |
 | VictoriaMetrics | `http://127.0.0.1:8428/vmui/` |
 | VictoriaLogs | `http://127.0.0.1:9428/select/vmui/` |
+
+With shared paths enabled, the deployed dashboard cards link to `/headlamp`,
+`/metrics`, and `/logs` on the current browser address. The connection guide
+displays those links and Headlamp token instructions. The Vite development
+server still uses separate tool connections; its direct Headlamp link includes
+`/headlamp/` when that base URL is enabled.
 
 Headlamp also requires a Kubernetes login token. Keep workload management in
 Headlamp, metrics in VictoriaMetrics, and log search in VictoriaLogs.

@@ -24,7 +24,7 @@ Use a fresh server without an existing K3s installation. AK3S refuses to overwri
 
 Apply these rules to both the provider firewall or security group and any host firewall. Allow outbound downloads and permit pod and Service traffic forwarding in any host firewall. Leave ports 80 and 443 free. Headlamp, metrics, and logs need no public ports.
 
-Follow the [installation steps](../README.md#install). Set `api_endpoint` to a reachable VPS IPv4 or API DNS name. Point application DNS A records at the VPS's public IPv4; remove stale AAAA records if IPv6 is unavailable. If your provider uses network address translation (NAT), arrange the required inbound port mappings and use the externally reachable address for clients.
+Follow the [installation steps](../README.md#install). Set `kubernetes_api_endpoint` to a reachable VPS IPv4 or API DNS name. Point application DNS A records at the VPS's public IPv4; remove stale AAAA records if IPv6 is unavailable. If your provider uses network address translation (NAT), arrange the required inbound port mappings and use the externally reachable address for clients.
 
 Try the [WSL2 tests](wsl-testing.md) first, then repeat the [runtime checks](runtime-testing.md) on the VPS. Public DNS, provider firewall rules, and Let's Encrypt HTTP-01 validation require checks on the actual VPS even after successful local tests.
 
