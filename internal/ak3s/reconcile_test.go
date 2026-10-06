@@ -55,7 +55,7 @@ func TestRealReconcileOrderAndIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := &Bundle{Dir: t.TempDir(), Helm: "/fake/helm", Manifests: map[string][]byte{"issuers.yaml": []byte("issuers"), "headlamp-rbac.yaml": []byte("headlamp"), "metrics-rbac.yaml": []byte("metrics")}}
+	b := &Bundle{Dir: t.TempDir(), Helm: "/fake/helm", Manifests: map[string][]byte{"issuers.yaml": []byte("issuers"), "headlamp-rbac.yaml": []byte("headlamp"), "metrics-rbac.yaml": []byte("metrics"), "dashboard.yaml": []byte("dashboard")}}
 	for iteration := 0; iteration < 2; iteration++ {
 		e := &effects{}
 		if err = reconcile(context.Background(), p, b, e, e.write, nil); err != nil {
@@ -63,6 +63,9 @@ func TestRealReconcileOrderAndIdempotency(t *testing.T) {
 		}
 		if e.has("restart") || e.has("/bin/k3s --version") || e.has("/bin/sh") {
 			t.Fatal("unchanged node restarted")
+		}
+		if !e.has("-n ak3s rollout status deployment/dashboard --timeout=180s") {
+			t.Fatal("dashboard readiness check missing")
 		}
 		if !e.has("wait --for=condition=Ready node/node1") {
 			t.Fatal("readiness check missing")
@@ -255,4 +258,21 @@ func TestApplyLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	next()
+}
+
+func TestDashboardRolloutFailureRequiresRerun(t *testing.T) {
+	c := testConfig(t)
+	p, err := BuildPlan(c, testPins(t), managedSnapshot(t, c), "apply")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Bundle{Dir: t.TempDir(), Helm: "/fake/helm", Manifests: map[string][]byte{"dashboard.yaml": []byte("dashboard")}}
+	e := &effects{failCommand: "rollout status deployment/dashboard"}
+	if err := reconcile(context.Background(), p, b, e, e.write, nil); err == nil || !strings.Contains(err.Error(), "dashboard") {
+		t.Fatal("dashboard failure ignored")
+	}
+	e.failCommand = ""
+	if err := reconcile(context.Background(), p, b, e, e.write, nil); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -3,10 +3,20 @@ on:
   push:
     paths:
       - "dashboard/**"
+      - "cmd/ak3s-dashboard/**"
+      - "internal/ak3s/dashboard*.go"
+      - "platform/manifests/dashboard.yaml"
+      - "go.mod"
+      - "go.sum"
       - ".github/workflows/dashboard.yaml"
   pull_request:
     paths:
       - "dashboard/**"
+      - "cmd/ak3s-dashboard/**"
+      - "internal/ak3s/dashboard*.go"
+      - "platform/manifests/dashboard.yaml"
+      - "go.mod"
+      - "go.sum"
       - ".github/workflows/dashboard.yaml"
 permissions:
   contents: read
@@ -24,4 +34,12 @@ jobs:
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci
+      - run: npm test
       - run: npm run build
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dashboard/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false

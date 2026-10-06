@@ -11,6 +11,8 @@ metrics_storage: 10Gi
 logs_retention: 7d
 logs_storage: 10Gi
 logs_max_disk: 8GiB
+# Empty selects the dashboard image supplied by this AK3S release.
+dashboard_image: ""
 headlamp_hostname: ""
 platform: true
 node:

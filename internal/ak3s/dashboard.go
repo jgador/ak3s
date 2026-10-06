@@ -52,17 +52,18 @@ type dashboardData struct {
 		Health            string          `json:"health"`
 		Nodes             []dashboardNode `json:"nodes"`
 	} `json:"cluster"`
-	Components    []dashboardComponent `json:"components"`
-	Tools         []dashboardTool      `json:"tools"`
-	Configuration struct {
-		Path          string `json:"path"`
-		OverrideCount int    `json:"overrideCount"`
-		EffectiveYAML string `json:"effectiveYaml"`
-		OverridesYAML string `json:"overridesYaml"`
-	} `json:"configuration"`
-	Upgrade struct {
+	Components    []dashboardComponent   `json:"components"`
+	Tools         []dashboardTool        `json:"tools"`
+	Configuration dashboardConfiguration `json:"configuration"`
+	Upgrade       struct {
 		AvailableVersion *string `json:"availableVersion"`
 	} `json:"upgrade"`
+}
+
+type dashboardVersion struct{ GitVersion string }
+type dashboardResources struct {
+	Items    []dashboardResource
+	Metadata struct{ Continue string }
 }
 
 type dashboardResource struct {
@@ -163,8 +164,8 @@ func (a *App) dashboardSnapshot(ctx context.Context, path string) error {
 		}
 		return nil
 	}
-	var nodes, workloads struct{ Items []dashboardResource }
-	var version struct{ GitVersion string }
+	var nodes, workloads dashboardResources
+	var version dashboardVersion
 	if err := query([]string{"get", "--raw=/version"}, &version); err != nil {
 		return err
 	}
@@ -174,9 +175,24 @@ func (a *App) dashboardSnapshot(ctx context.Context, path string) error {
 	if err := query([]string{"get", "deployments.apps,statefulsets.apps,daemonsets.apps", "-A", "-o", "json"}, &workloads); err != nil {
 		return err
 	}
+	c.sourcePath = path
+	if c.Node.Name == "" {
+		c.Node.Name = state.Node.Name
+	}
+	metadata, err := dashboardMetadataFor(c)
+	if err != nil {
+		return err
+	}
+	metadata.ClusterName, metadata.APIEndpoint = state.ClusterName, endpoint
+	metadata.AK3SVersion, metadata.Datastore = state.AK3SVersion, state.Node.Datastore
+	metadata.NodeName = state.Node.Name
+	return json.NewEncoder(a.Out).Encode(dashboardProjection(metadata, version, nodes, workloads))
+}
+
+func dashboardProjection(metadata dashboardMetadata, version dashboardVersion, nodes, workloads dashboardResources) dashboardData {
 	d := dashboardData{CollectedAt: time.Now().UTC().Format(time.RFC3339), Components: []dashboardComponent{}, Tools: []dashboardTool{}}
-	d.Cluster.Name, d.Cluster.APIEndpoint = state.ClusterName, endpoint
-	d.Cluster.AK3SVersion, d.Cluster.Datastore = state.AK3SVersion, state.Node.Datastore
+	d.Cluster.Name, d.Cluster.APIEndpoint = metadata.ClusterName, metadata.APIEndpoint
+	d.Cluster.AK3SVersion, d.Cluster.Datastore = metadata.AK3SVersion, metadata.Datastore
 	d.Cluster.KubernetesVersion, d.Cluster.Health = version.GitVersion, "healthy"
 	d.Cluster.Nodes = []dashboardNode{}
 	for _, n := range nodes.Items {
@@ -201,7 +217,7 @@ func (a *App) dashboardSnapshot(ctx context.Context, path string) error {
 		if node.Health != "healthy" {
 			d.Cluster.Health = "degraded"
 		}
-		if n.Metadata.Name == state.Node.Name {
+		if n.Metadata.Name == metadata.NodeName {
 			d.Cluster.K3sVersion = n.Status.NodeInfo.KubeletVersion
 		}
 		d.Cluster.Nodes = append(d.Cluster.Nodes, node)
@@ -238,7 +254,7 @@ func (a *App) dashboardSnapshot(ctx context.Context, path string) error {
 			component.Health = "degraded"
 			component.ChartVersion = "Not installed"
 		}
-		if found || c.Platform {
+		if found || metadata.Platform {
 			d.Components = append(d.Components, component)
 			if component.Health != "healthy" {
 				d.Cluster.Health = "degraded"
@@ -251,25 +267,8 @@ func (a *App) dashboardSnapshot(ctx context.Context, path string) error {
 		{ID: "metrics", Name: "VictoriaMetrics", Category: "MONITORING", Description: "Explore cluster metrics.", URL: "http://127.0.0.1:8428/vmui/", PortForward: "sudo k3s kubectl -n observability port-forward service/victoria-metrics 8428:8428", Health: health["victoria-metrics"]},
 		{ID: "logs", Name: "VictoriaLogs", Category: "LOGS & SEARCH", Description: "Search application logs.", URL: "http://127.0.0.1:9428/select/vmui/", PortForward: "sudo k3s kubectl -n observability port-forward service/victoria-logs 9428:9428", Health: health["victoria-logs"]},
 	}
-	given, err := mapping(raw)
-	if err != nil {
-		return errors.New("invalid operator configuration")
-	}
-	if c.Node.Name == "" {
-		c.Node.Name = state.Node.Name
-	}
-	effectiveRaw, err := yaml.Marshal(c)
-	if err != nil {
-		return errors.New("cannot resolve configuration")
-	}
-	effective, err := mapping(effectiveRaw)
-	if err != nil {
-		return errors.New("cannot resolve configuration")
-	}
-	d.Configuration.Path, d.Configuration.OverrideCount = path, dashboardOverrideCount(given)
-	d.Configuration.EffectiveYAML = dashboardConfigYAML(effective)
-	d.Configuration.OverridesYAML = dashboardConfigYAML(given)
-	return json.NewEncoder(a.Out).Encode(d)
+	d.Configuration = metadata.Configuration
+	return d
 }
 
 func dashboardWorkloadReady(w dashboardResource) bool {
@@ -302,7 +301,7 @@ func dashboardOverrideCount(m map[string]any) int {
 // are replaced as a whole so new nested credential keys cannot escape redaction.
 func dashboardConfigYAML(m map[string]any) string {
 	result := map[string]any{}
-	for _, key := range []string{"cluster_name", "api_endpoint", "tls_sans", "acme_environment", "storage_class", "metrics_retention", "metrics_storage", "logs_retention", "logs_storage", "logs_max_disk", "headlamp_hostname", "platform"} {
+	for _, key := range []string{"cluster_name", "api_endpoint", "tls_sans", "acme_environment", "storage_class", "metrics_retention", "metrics_storage", "logs_retention", "logs_storage", "logs_max_disk", "headlamp_hostname", "dashboard_image", "platform"} {
 		if value, ok := m[key]; ok {
 			result[key] = value
 		}

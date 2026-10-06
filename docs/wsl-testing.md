@@ -159,6 +159,32 @@ The default build reports version `dev` and a commit identifier. Record the full
 
 This path tests the local CLI and cluster behavior. For release artifact and checksum generation, also follow [development checks](testing.md). It does not exercise the published release download and checksum verification; repeat path A after publishing to validate the release installer.
 
+For the local-source path, also build the dashboard image with Docker in the
+lab or on another Linux amd64/arm64 machine:
+
+```bash
+make dashboard-image
+docker save ghcr.io/jgador/ak3s-dashboard:dev -o .tmp/dashboard-image.tar
+```
+
+If built elsewhere, transfer that archive privately to the lab. On a fresh lab,
+K3s must start before the archive can be imported. Add `platform: false` to the
+configuration below for the first local-source install. This installs K3s
+without shared add-ons. After completing that first install using the commands
+below, return to the checkout and import the image:
+
+```bash
+sudo k3s ctr images import .tmp/dashboard-image.tar
+rm .tmp/dashboard-image.tar
+```
+
+Remove `platform: false` from the operator configuration and rerun
+`sudo ak3s apply --dry-run` followed by `sudo ak3s apply` to install the full
+platform. Published releases pull their dashboard image automatically and do
+not need this bootstrap step. On an existing local test cluster, import the
+image before applying. See the [dashboard build guide](../dashboard/README.md#build-and-deploy-local-source)
+for image updates and custom registries.
+
 ### Configure and install the cluster (both paths)
 
 Create the test configuration:
@@ -210,7 +236,6 @@ For background access from a local checkout, stop any manual port-forwards from
 the runtime checklist and run:
 
 ```bash
-npm --prefix dashboard ci # once; requires Node.js 22.12+ and npm
 make port-forward        # starts all four UIs and returns to the shell
 make port-forward-status
 # When finished:
@@ -219,12 +244,12 @@ make port-forward-stop
 
 The [access guide](operations.md#start-all-uis-for-local-testing) covers
 prerequisites, logs, and the Headlamp login token. Use
-`make port-forward DASHBOARD=0` to skip the dashboard and its Node.js requirement.
+`make port-forward DASHBOARD=0` to skip the dashboard forward.
 Without a checkout, use the manual port-forwards in separate terminals.
 
 In Windows, open `http://127.0.0.1:5173` for the AK3S dashboard,
 `http://127.0.0.1:8080` for Headlamp, `http://127.0.0.1:8428/vmui/` for metrics,
-and `http://127.0.0.1:9428/select/vmui/` for logs. Build the current CLI with `make build` before starting the dashboard.
+and `http://127.0.0.1:9428/select/vmui/` for logs. The dashboard runs inside the cluster; no local Node.js process is needed.
 All four tools read the test cluster. These requests test
 Windows-to-WSL access in addition to the Linux checks. With
 `localhostForwarding=true`, no SSH tunnel is needed for this local setup.

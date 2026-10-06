@@ -5,6 +5,7 @@ acme_email: operator@example.com
 api_endpoint: 192.0.2.10
 
 # metrics_retention: 14d
+# dashboard_image: registry.example.com/ak3s-dashboard:v1.2.3
 # headlamp_hostname: dashboard.example.com
 # helm_values:
 #   nginx-ingress:

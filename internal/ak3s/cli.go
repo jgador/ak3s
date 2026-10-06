@@ -131,6 +131,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	c.sourcePath = path
 	if command == "config" {
 		data, err := yaml.Marshal(c)
 		if err != nil {
@@ -168,7 +169,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 				fmt.Fprintf(a.Out, "---\n# %s\n%s\n", chart.Release, rendered)
 			}
 		}
-		for _, name := range []string{"issuers.yaml", "headlamp-rbac.yaml", "metrics-rbac.yaml"} {
+		for _, name := range []string{"issuers.yaml", "headlamp-rbac.yaml", "metrics-rbac.yaml", "dashboard.yaml"} {
 			if raw, ok := b.Manifests[name]; ok {
 				fmt.Fprintf(a.Out, "---\n# %s\n%s\n", name, raw)
 			}

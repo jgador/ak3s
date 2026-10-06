@@ -7,9 +7,8 @@ umask 077
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 suite_tmp=$(mktemp -d "$repo_root/.tmp/ak3s-forward-tests-XXXXXX")
 fixture="$suite_tmp/checkout with spaces"
-mkdir -p "$fixture/scripts" "$fixture/.tmp" "$fixture/bin" "$fixture/dashboard/node_modules/vite/bin"
+mkdir -p "$fixture/scripts" "$fixture/.tmp" "$fixture/bin"
 cp "$repo_root/scripts/port-forward.sh" "$fixture/scripts/"
-: > "$fixture/dashboard/node_modules/vite/bin/vite.js"
 extra_pid=''
 test_name=initialization
 passed=0
@@ -67,21 +66,17 @@ import time
 
 fixture = Path(os.environ["PF_FIXTURE"])
 args = sys.argv[1:]
-if Path(sys.argv[0]).name == "k3s":
-    name = args[-2].removeprefix("service/")
-    port, remote = {
-        "headlamp": (8080, 80),
-        "victoria-metrics": (8428, 8428),
-        "victoria-logs": (9428, 9428),
-    }[name]
-    namespace = "headlamp" if name == "headlamp" else "observability"
-    assert args == ["kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml",
-                    "-n", namespace, "port-forward", "--address", "127.0.0.1",
-                    "--pod-running-timeout=15s", f"service/{name}", f"{port}:{remote}"]
-else:
-    name, port = "dashboard", 5173
-    assert args[1:] == ["--host", "127.0.0.1", "--port", "5173", "--strictPort"]
-    assert Path.cwd() == fixture / "dashboard"
+name = args[-2].removeprefix("service/")
+port, remote = {
+    "headlamp": (8080, 80),
+    "victoria-metrics": (8428, 8428),
+    "victoria-logs": (9428, 9428),
+    "dashboard": (5173, 80),
+}[name]
+namespace = {"headlamp": "headlamp", "dashboard": "ak3s"}.get(name, "observability")
+assert args == ["kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml",
+                "-n", namespace, "port-forward", "--address", "127.0.0.1",
+                "--pod-running-timeout=15s", f"service/{name}", f"{port}:{remote}"]
 
 if (fixture / "fail-service").exists() and (fixture / "fail-service").read_text() == name:
     sys.exit("Simulated service failure")
@@ -99,13 +94,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 server = http.server.HTTPServer(("127.0.0.1", port), Handler)
-if name != "dashboard":
-    print(f"Forwarding from 127.0.0.1:{port} -> {remote}", flush=True)
+print(f"Forwarding from 127.0.0.1:{port} -> {remote}", flush=True)
 server.serve_forever()
 PYTHON
 chmod 755 "$fixture/bin/listener"
 ln -s listener "$fixture/bin/k3s"
-ln -s listener "$fixture/bin/node"
 cat > "$fixture/bin/sudo" <<'BASH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -249,11 +242,7 @@ wait "$extra_pid" 2>/dev/null || true
 extra_pid=''
 pass
 
-test_name='tools-only mode works without dashboard dependencies'
-rm -- "$fixture/dashboard/node_modules/vite/bin/vite.js"
-capture start
-expect_status 1
-[[ "$output" == *'npm ci'* ]] || fail 'Missing dashboard setup guidance.'
+test_name='tools-only mode skips the deployed dashboard'
 capture start --no-dashboard
 expect_status 0
 [[ -z $(ss -H -ltn 'sport = :5173') ]] || fail 'Dashboard started in tools-only mode.'
@@ -277,26 +266,6 @@ expect_status 1
 [[ ! -e "$suite_tmp/untouched" ]] || fail 'Symlink target was changed.'
 rm -- "$fixture/.tmp/port-forward/headlamp.pid"
 pass
-
-if command -v node >/dev/null && [[ -f "$repo_root/dashboard/node_modules/vite/bin/vite.js" ]]; then
-  test_name='the real Vite dashboard starts and serves TypeScript modules'
-  rm -- "$fixture/bin/node"
-  rm -rf -- "$fixture/dashboard/node_modules"
-  ln -s "$repo_root/dashboard/node_modules" "$fixture/dashboard/node_modules"
-  cp "$repo_root/dashboard/"{index.html,package.json,vite.config.ts} "$fixture/dashboard/"
-  cp -R "$repo_root/dashboard/src" "$repo_root/dashboard/server" "$repo_root/dashboard/public" "$fixture/dashboard/"
-  capture start
-  expect_status 0
-  html=$(curl --noproxy '*' -fsS --max-time 5 http://127.0.0.1:5173/)
-  [[ "$html" == *'AK3S'* && "$html" == *'/@vite/client'* ]] || fail 'Expected the real dashboard HTML.'
-  module=$(curl --noproxy '*' -fsS --max-time 5 http://127.0.0.1:5173/src/main.tsx)
-  [[ "$module" == *'createRoot'* ]] || fail 'TypeScript entry point was not served.'
-  capture stop
-  expect_status 0
-  pass
-else
-  printf 'SKIP: real Vite check (install Node.js and dashboard dependencies to include it).\n'
-fi
 
 assert_stopped
 printf '\n%d port-forward tests passed.\n' "$passed"

@@ -7,23 +7,23 @@ Run AK3S on the control-plane VPS (or inside the WSL2 test distribution). Comman
 ### Start all UIs for local testing
 
 From a repository checkout inside the WSL distribution running your AK3S test
-cluster, install the dashboard dependencies once, then start all four UIs:
+cluster, start all four UIs:
 
 ```bash
-npm --prefix dashboard ci
 make port-forward
 ```
 
-Use Bash 4+, Make, Node.js 22.12+ (24 recommended), npm, curl, and the standard
+Use Bash 4+, Make, curl, and the standard
 Linux tools `flock`, `nohup`, and `ss`. On Ubuntu, these tools come from
 `util-linux`, `coreutils`, and `iproute2`. K3s must already be installed and the
-three platform Services must be ready.
+four platform Services must be ready. The AK3S dashboard is installed by
+`ak3s install`, `apply`, and `upgrade` when `platform: true`.
 
 The command starts these listeners in the background, waits for startup, prints
 their URLs, and returns to your shell. It does not tail logs. Run it as your normal
 WSL user; it asks for sudo access if needed for the local K3s kubeconfig at
 `/etc/rancher/k3s/k3s.yaml`. It does not select a cluster from your default kubectl
-context. The dashboard runs as the user invoking the helper.
+context. Node.js and npm are only needed for frontend development.
 
 | UI | Windows browser URL |
 | --- | --- |
@@ -32,8 +32,9 @@ context. The dashboard runs as the user invoking the helper.
 | VictoriaMetrics | `http://127.0.0.1:8428/vmui/` |
 | VictoriaLogs | `http://127.0.0.1:9428/select/vmui/` |
 
-The AK3S dashboard is a local Vite server that reads live cluster data through the current AK3S CLI. Run `make build` before starting it from a checkout. The other
-three listeners forward to Kubernetes Services. All four bind to `127.0.0.1`.
+All four listeners forward to Kubernetes Services and bind to `127.0.0.1`.
+The AK3S dashboard runs in namespace `ak3s` with a read-only service account.
+It serves the built frontend and live cluster data from one container.
 With WSL2 NAT networking and `localhostForwarding=true`, open these addresses
 directly in Windows; no SSH tunnel is needed between Windows and its local WSL
 distribution. See the [WSL guide](wsl-testing.md#4-run-the-shared-runtime-checks)
@@ -46,8 +47,8 @@ make port-forward         # reuse running listeners and restart missing ones
 ```
 
 Use the same checkout and Linux user for these commands. For only the three
-Kubernetes tools, run `make port-forward DASHBOARD=0`; Node.js and npm are then
-unnecessary. This leaves an already running dashboard alone. The direct Bash
+Kubernetes tools, run `make port-forward DASHBOARD=0`. This leaves an already
+running dashboard forward alone. The direct Bash
 equivalents are `bash scripts/port-forward.sh start`, `status`, and `stop`;
 `start --no-dashboard` skips the dashboard.
 
@@ -70,6 +71,18 @@ sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n headlamp create token
 ```
 
 ### Manual access and remote hosts
+
+For the AK3S dashboard:
+
+```bash
+sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n ak3s port-forward --address 127.0.0.1 service/dashboard 5173:80
+```
+
+Open `http://127.0.0.1:5173`. For a remote server, also run
+`ssh -N -L 5173:127.0.0.1:5173 USER@VPS_ADDRESS` from your workstation.
+The dashboard requires Kubernetes port-forward access; it has no separate login.
+Its NetworkPolicy blocks pod-network ingress, and the server checks loopback peers,
+local Host headers, and browser origins. Keep it private.
 
 Headlamp provides a read-only viewer login:
 

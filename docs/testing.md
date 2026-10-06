@@ -18,13 +18,13 @@ For local credential checks, follow [secret scanning](secret-scanning.md).
 Gitleaks 8.30.1 or newer 8.x. `make secrets-scan` checks the index and working
 files; `make secrets-history` checks the complete history available locally.
 
-`make test-port-forward` tests the background UI helper with simulated K3s and
-dashboard commands and real loopback sockets. It needs Python 3.9+, curl, and the
+`make test-port-forward` tests the background UI helper with simulated K3s
+commands and real loopback sockets. It needs Python 3.9+, curl, and the
 Linux tools listed in the [access guide](operations.md#start-all-uis-for-local-testing),
 with ports 5173, 8080, 8428, and 9428 free. Tests cover repeated starts and stops,
 dead processes, startup failures and timeouts, interrupted startup, stale process
-records, occupied ports, and concurrent commands. An additional check runs the
-real Vite dashboard when Node.js and its dependencies are installed.
+records, occupied ports, and concurrent commands. All four listeners use the
+same Kubernetes port-forward contract.
 The tests use no cluster or credentials. Validate
 actual service access and Windows-to-WSL forwarding on a running test cluster.
 
@@ -49,4 +49,9 @@ Before releasing, use disposable supported VPSs or full Linux virtual machines t
 
 ## Publishing
 
-After validation, push a `vMAJOR.MINOR.PATCH` tag. GitHub Actions verifies, builds, and publishes the binaries, installer, and checksums. Merging a pull request does not publish a release.
+After validation, push a `vMAJOR.MINOR.PATCH` tag. GitHub Actions verifies, builds,
+and publishes the dashboard image for Linux amd64/arm64, then embeds its
+immutable digest in the CLI binaries and publishes
+the binaries, installer, and checksums. The `ghcr.io/jgador/ak3s-dashboard` package
+must be public so cluster nodes can pull it without registry credentials.
+Merging a pull request does not publish a release.

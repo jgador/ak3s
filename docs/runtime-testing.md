@@ -31,7 +31,7 @@ Expect an enabled, active service, API response `ok`, nodes in the Ready state, 
 Wait for all installed Deployments, DaemonSets, and StatefulSets to become ready:
 
 ```bash
-for namespace in kube-system ingress-nginx cert-manager headlamp observability; do
+for namespace in kube-system ingress-nginx cert-manager headlamp observability ak3s; do
   for resource in $(k -n "$namespace" get deployment,daemonset,statefulset -o name); do
     k -n "$namespace" rollout status "$resource" --timeout=300s || break 2
   done
@@ -101,6 +101,29 @@ curl --noproxy '*' -fk --resolve "hello.test:443:$AK3S_TEST_ADDRESS" https://hel
 Both responses must match the recorded marker. Keep its value for service restart, WSL distribution or VPS restart, and restore checks. Local-path storage survives pod replacement on the same node; this check does not show replication or recovery after losing the server disk.
 
 ## 3. Check dashboard access and permissions
+
+Check the deployed AK3S dashboard first:
+
+```bash
+k -n ak3s rollout status deployment/dashboard --timeout=180s
+k -n ak3s get service/dashboard
+k auth can-i list nodes --as=system:serviceaccount:ak3s:dashboard
+k auth can-i list deployments.apps --all-namespaces --as=system:serviceaccount:ak3s:dashboard
+k auth can-i get secrets -n demo --as=system:serviceaccount:ak3s:dashboard
+k auth can-i create deployments.apps -n demo --as=system:serviceaccount:ak3s:dashboard
+k -n ak3s port-forward --address 127.0.0.1 service/dashboard 5173:80
+```
+
+Expect a ready Deployment, a ClusterIP Service, `yes` for the two list checks,
+and `no` for Secret access and writes. Open `http://127.0.0.1:5173`; check live
+nodes, the configuration views, and refresh. From another terminal, confirm
+`curl --noproxy '*' -fsS http://127.0.0.1:5173/api/snapshot` succeeds and
+`curl --noproxy '*' -o /dev/null -s -w '%{http_code}\n' -H 'Origin: http://untrusted.example.com' http://127.0.0.1:5173/api/snapshot`
+returns `403`. Keep snapshots private. Repeat after `ak3s apply` and pod
+replacement to check configuration updates and recovery. Source builds require
+[importing the local dashboard image](../dashboard/README.md#build-and-deploy-local-source).
+
+Then check Headlamp:
 
 ```bash
 k -n headlamp create token headlamp-viewer --duration=1h

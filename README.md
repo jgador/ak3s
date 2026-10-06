@@ -15,7 +15,8 @@ Support focuses on the **control plane**, which manages the Kubernetes cluster. 
 | Load balancer | K3s ServiceLB | Expose LoadBalancer Services through VPS ports |
 | Ingress | NGINX Kubernetes Ingress Controller | Route HTTP/HTTPS to applications |
 | Certificates | cert-manager and Let's Encrypt | Issue and renew HTTPS certificates |
-| Dashboard | Headlamp | Browse workloads and cluster resources |
+| Dashboard | AK3S dashboard | Cluster health, configuration, and upgrade guidance |
+| Kubernetes UI | Headlamp | Browse workloads and cluster resources |
 | Metrics | VictoriaMetrics | Store and query infrastructure and application metrics |
 | Logs | VictoriaLogs and vlagent | Collect and query container logs |
 | Resource metrics | metrics-server | Support `kubectl top` and resource-based autoscaling |
@@ -91,16 +92,16 @@ For [local secret scanning](docs/secret-scanning.md), use Bash, jq, and
 Gitleaks 8.30.1 or newer 8.x, then run `make secrets-setup` and
 `make secrets-scan`. The pre-commit hook checks staged content before each commit.
 
-The [local TypeScript dashboard](dashboard/README.md) shows live
-cluster summaries, configuration, and upgrades, with links to the existing
-Kubernetes and observability tools. Run it with `cd dashboard`, `npm ci`, and
-`npm run dev`. Build the CLI with `make build` first and run the dashboard on the K3s server; it reads the local cluster and sanitized configuration.
+The [AK3S dashboard](dashboard/README.md) is deployed with the platform in
+namespace `ak3s`. It shows live cluster summaries, sanitized configuration, and
+upgrade guidance, with links to Headlamp and the observability tools.
 
-For a local AK3S test cluster, `make port-forward` starts the dashboard and all three
-tool port-forwards in the background, with localhost URLs you can open from
-Windows through WSL. Install the dashboard dependencies first. Use
-`make port-forward-status` to check them and `make port-forward-stop` when finished.
-See [local UI access](docs/operations.md#start-all-uis-for-local-testing).
+For a local AK3S test cluster, `make port-forward` forwards the dashboard and all
+three tool Services in the background. Open `http://127.0.0.1:5173` for the
+dashboard, including from Windows through WSL. Use `make port-forward-status`
+to check them and `make port-forward-stop` when finished. Node.js is only needed
+for frontend development. See [local UI access](docs/operations.md#start-all-uis-for-local-testing)
+and [building the dashboard image](dashboard/README.md#build-and-deploy-local-source).
 
 For a fresh local WSL installation test, invoke `$clean-slate` from this repository
 to use the [AK3S cleanup skill](.agents/skills/clean-slate/SKILL.md). It removes

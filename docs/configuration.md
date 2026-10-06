@@ -8,7 +8,7 @@ api_endpoint: api.example.com
 metrics_retention: 14d
 logs_storage: 20Gi
 logs_max_disk: 16GiB
-# Optional HTTPS dashboard:
+# Optional HTTPS access to Headlamp:
 headlamp_hostname: dashboard.example.com
 ```
 
@@ -20,8 +20,9 @@ headlamp_hostname: dashboard.example.com
 | `node.name` | Empty uses the host's lowercase hostname during installation |
 | `acme_email` | Required for certificate issuers |
 | `api_endpoint` | `127.0.0.1`; use a reachable IPv4 or DNS name without a scheme or port |
-| `headlamp_hostname` | Empty keeps the dashboard private |
-| `acme_environment` | `staging`; select `production` for trusted dashboard certificates |
+| `headlamp_hostname` | Empty keeps Headlamp private |
+| `dashboard_image` | Empty selects this AK3S release's dashboard image; overrides need an explicit tag or SHA-256 digest |
+| `acme_environment` | `staging`; select `production` for trusted Headlamp certificates |
 | `metrics_retention`, `logs_retention` | `7d` |
 | `metrics_storage`, `logs_storage` | `10Gi` each on local disk |
 | `logs_max_disk` | `8GiB` log retention size cap |

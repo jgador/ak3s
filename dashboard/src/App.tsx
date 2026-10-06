@@ -114,7 +114,7 @@ export function App() {
       });
       if (!response.ok) {
         throw new Error(
-          "Cannot read the local cluster. Check that K3s is running and the dashboard can read its kubeconfig.",
+          "Cannot read cluster data. Check that K3s and the dashboard service account are available.",
         );
       }
       const data: DashboardSnapshot = await response.json();

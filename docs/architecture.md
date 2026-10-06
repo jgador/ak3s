@@ -10,7 +10,14 @@ Application DNS points to the VPS. ServiceLB exposes ports 80 and 443, and NGINX
 
 ServiceLB does not allocate public IPs, configure DNS, or provision a cloud load balancer. Its default ingress configuration does not preserve the original client IP.
 
-Headlamp, VictoriaMetrics, and VictoriaLogs use private ClusterIP services. Reach them through [authenticated Kubernetes port-forwarding](operations.md#access). Logs contain container standard output and standard error (stdout/stderr). Metrics-server supplies resource metrics; VictoriaMetrics stores longer-term metrics.
+The AK3S dashboard, Headlamp, VictoriaMetrics, and VictoriaLogs use private ClusterIP services.
+The dashboard runs as a non-root Deployment in namespace `ak3s`, reads nodes and
+workload status through a restricted service account, and mounts only sanitized
+AK3S configuration. Reconciliation updates this configuration and waits for the
+dashboard rollout. A NetworkPolicy blocks pod-network ingress. Reach these
+services through [authenticated Kubernetes port-forwarding](operations.md#access).
+Logs contain container standard output and standard error (stdout/stderr).
+Metrics-server supplies resource metrics; VictoriaMetrics stores longer-term metrics.
 
 ## Availability and cost
 

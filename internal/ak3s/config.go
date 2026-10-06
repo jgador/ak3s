@@ -28,10 +28,14 @@ type Config struct {
 	LogsRetention    string                    `yaml:"logs_retention"`
 	LogsStorage      string                    `yaml:"logs_storage"`
 	LogsMaxDisk      string                    `yaml:"logs_max_disk"`
+	DashboardImage   string                    `yaml:"dashboard_image"`
 	HeadlampHostname string                    `yaml:"headlamp_hostname"`
 	Platform         bool                      `yaml:"platform"`
 	Node             NodeConfig                `yaml:"node"`
 	HelmValues       map[string]map[string]any `yaml:"helm_values"`
+	sourcePath       string
+	displayOverrides string
+	overrideCount    int
 }
 
 // NodeConfig describes this node's identity, networking, and cluster membership.
@@ -157,6 +161,8 @@ func LoadConfig(overrides []byte) (Config, error) {
 	if err := dec.Decode(&c); err != nil {
 		return c, err
 	}
+	c.displayOverrides = dashboardConfigYAML(given)
+	c.overrideCount = dashboardOverrideCount(given)
 	return c, c.Validate()
 }
 
@@ -218,6 +224,9 @@ func (c Config) Validate() error {
 	}
 	if c.HeadlampHostname != "" && !hostname(c.HeadlampHostname) {
 		return errors.New("headlamp_hostname must be a DNS hostname")
+	}
+	if c.DashboardImage != "" && !dashboardImageRE.MatchString(c.DashboardImage) {
+		return errors.New("dashboard_image must be a container image with an explicit tag or SHA-256 digest")
 	}
 	n := c.Node
 	if n.Role != "server" && n.Role != "agent" {

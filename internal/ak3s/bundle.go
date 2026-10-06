@@ -158,6 +158,10 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 		}
 		b.Manifests[name] = data
 	}
+	b.Manifests["dashboard.yaml"], err = DashboardManifests(p.Config)
+	if err != nil {
+		return nil, err
+	}
 	for name, data := range b.Manifests {
 		if err = ValidateManifests(data); err != nil {
 			return nil, fmt.Errorf("validate %s: %w", name, err)

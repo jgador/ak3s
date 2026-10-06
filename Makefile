@@ -2,16 +2,17 @@
 # ?= sets a value only when it has not already been provided.
 GO ?= go
 VERSION ?= dev
+DASHBOARD_IMAGE ?= ghcr.io/jgador/ak3s-dashboard:$(VERSION)
 
 # := evaluates this command once when Make reads the file.
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 # Remove symbol and debug tables (-s -w) and embed the version and commit (-X).
-LDFLAGS = -s -w -X github.com/jgador/ak3s/internal/ak3s.Version=$(VERSION) -X github.com/jgador/ak3s/internal/ak3s.Commit=$(COMMIT)
+LDFLAGS = -s -w -X github.com/jgador/ak3s/internal/ak3s.Version=$(VERSION) -X github.com/jgador/ak3s/internal/ak3s.Commit=$(COMMIT) -X github.com/jgador/ak3s/internal/ak3s.DashboardImage=$(DASHBOARD_IMAGE)
 
 # These names are tasks, so run them even if a file has the same name.
 .PHONY: build test verify release secrets-setup secrets-scan secrets-staged secrets-history test-secrets
-.PHONY: port-forward port-forward-status port-forward-stop test-port-forward
+.PHONY: dashboard-image port-forward port-forward-status port-forward-stop test-port-forward
 
 # Build bin/ak3s for the current OS and architecture without C bindings.
 build:
@@ -48,6 +49,10 @@ secrets-history:
 
 test-secrets:
 	bash scripts/check-secrets.test.sh
+
+# Build the production dashboard image from the repository root.
+dashboard-image:
+	docker build -f dashboard/Dockerfile -t $(DASHBOARD_IMAGE) .
 
 # Start all four local UIs in the background; DASHBOARD=0 skips the dashboard.
 port-forward:

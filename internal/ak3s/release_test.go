@@ -150,7 +150,7 @@ func TestPrepareUsesRealRenderingPathAndIsolatedWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 			dir := b.Dir
-			if downloads != 9 || len(b.Rendered) != 6 || len(b.Manifests) != 3 {
+			if downloads != 9 || len(b.Rendered) != 6 || len(b.Manifests) != 4 {
 				t.Fatal("incomplete preparation")
 			}
 			serverDryRuns := 0

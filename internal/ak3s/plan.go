@@ -247,6 +247,7 @@ func BuildPlan(c Config, pins Pins, s Snapshot, command string) (Plan, error) {
 		for _, chart := range pins.Charts {
 			p.Actions = append(p.Actions, Action{"reconcile", chart.Release, chart.Version + "; Helm upgrade --install --reset-values --atomic --wait"})
 		}
+		p.Actions = append(p.Actions, Action{"reconcile", "AK3S dashboard", dashboardImage(c) + "; private service; wait for rollout"})
 		p.Actions = append(p.Actions, Action{"apply", "ClusterIssuers and role-based access control (RBAC)", "idempotent kubectl apply"})
 	}
 	p.State = State{PendingRestart: p.RunInstaller, Schema: 2, InstallerSHA256: pins.Installer.SHA256, AK3SVersion: Version, K3sVersion: pins.K3s, ClusterName: c.ClusterName, Node: c.Node, TokenSHA256: s.TokenSHA256}

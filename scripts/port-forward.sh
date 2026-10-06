@@ -70,10 +70,9 @@ listening() {
 
 ready() {
   managed "$1" && listening "$1" || return 1
+  grep -Fq "Forwarding from 127.0.0.1:${ports[$1]} ->" "$state_dir/$1.log" || return 1
   if [[ "$1" == dashboard ]]; then
     curl --noproxy '*' --silent --fail --max-time 1 "${urls[$1]}/" >/dev/null 2>&1
-  else
-    grep -Fq "Forwarding from 127.0.0.1:${ports[$1]} ->" "$state_dir/$1.log"
   fi
 }
 
@@ -129,7 +128,7 @@ selected=(headlamp victoria-metrics victoria-logs)
 [[ "$option" == --no-dashboard ]] || selected+=(dashboard)
 needs_k3s=false
 for name in "${selected[@]}"; do
-  if ! managed "$name" && [[ "$name" != dashboard ]]; then
+  if ! managed "$name"; then
     needs_k3s=true
   fi
 done
@@ -144,9 +143,7 @@ if "$needs_k3s"; then
   fi
 fi
 if [[ "$option" != --no-dashboard ]]; then
-  command -v node >/dev/null || fail 'Install Node.js 22.12+ to run the dashboard.'
   command -v curl >/dev/null || fail 'curl is required to check dashboard readiness.'
-  [[ -f "$repo_root/dashboard/node_modules/vite/bin/vite.js" ]] || fail 'Run npm ci in dashboard/ first.'
 fi
 
 newly_started=()
@@ -171,22 +168,20 @@ for name in "${selected[@]}"; do
   fi
   listening "$name" && fail "Port ${ports[$name]} is already in use. Stop its owner or an earlier manual forward, then retry."
   rm -f -- "$state_dir/$name.pid"
-  if [[ "$name" == dashboard ]]; then
-    command=(node "$repo_root/dashboard/node_modules/vite/bin/vite.js" --host 127.0.0.1 --port 5173 --strictPort)
-  else
-    namespace=observability
-    remote_port=${ports[$name]}
-    if [[ "$name" == headlamp ]]; then
-      namespace=headlamp
-      remote_port=80
-    fi
-    command=("${kubectl[@]}" -n "$namespace" port-forward --address 127.0.0.1 --pod-running-timeout=15s "service/$name" "${ports[$name]}:$remote_port")
+  namespace=observability
+  remote_port=${ports[$name]}
+  if [[ "$name" == headlamp ]]; then
+    namespace=headlamp
+    remote_port=80
+  elif [[ "$name" == dashboard ]]; then
+    namespace=ak3s
+    remote_port=80
   fi
+  command=("${kubectl[@]}" -n "$namespace" port-forward --address 127.0.0.1 --pod-running-timeout=15s "service/$name" "${ports[$name]}:$remote_port")
   (
     # Close the lock descriptor in children; otherwise later commands cannot run.
     exec 9>&-
     cd -- "$repo_root"
-    [[ "$name" != dashboard ]] || cd dashboard
     # Keep sudo in the same terminal session as sudo -v so its cached
     # authorization works. nohup and redirected streams free the terminal.
     exec nohup "${command[@]}"

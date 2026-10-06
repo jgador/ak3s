@@ -183,10 +183,13 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 			}
 		}
 	}
-	for _, name := range []string{"headlamp-rbac.yaml", "metrics-rbac.yaml"} {
+	for _, name := range []string{"headlamp-rbac.yaml", "metrics-rbac.yaml", "dashboard.yaml"} {
 		if err = kube(b.Manifests[name], "apply", "-f", "-"); err != nil {
 			return fmt.Errorf("apply %s: %w", name, err)
 		}
+	}
+	if err = kube(nil, "-n", "ak3s", "rollout", "status", "deployment/dashboard", "--timeout=180s"); err != nil {
+		return fmt.Errorf("wait for AK3S dashboard: %w; check the dashboard image and rerun", err)
 	}
 	return nil
 }
