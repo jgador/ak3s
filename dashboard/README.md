@@ -54,26 +54,32 @@ See [WSL shared-path testing](../docs/wsl-testing.md#test-shared-ui-paths).
 
 ## Build and deploy local source
 
-Use Docker to build the frontend and Go server together. From the repository
-root on the local K3s server:
+For a single local test server, save your operator configuration with
+`platform: true`, then run this from the repository root:
 
 ```bash
-make dashboard-image
-# Transfer the local image into K3s's separate container runtime.
-docker save ghcr.io/jgador/ak3s-dashboard:dev -o .tmp/dashboard-image.tar
-sudo k3s ctr images import .tmp/dashboard-image.tar
-rm .tmp/dashboard-image.tar
-make build
-sudo bin/ak3s apply --dry-run
-sudo bin/ak3s apply
+make install-local
 ```
 
-These commands use the `dev` image for a default source build. Import the image
-on every node where the dashboard may run, or push it to a registry the cluster
-can reach. For a custom image, set `dashboard_image` in your operator values to
-an explicit tag or SHA-256 digest. Use a new tag for each build; if reusing the
-local `dev` tag, import it again and run
-`sudo k3s kubectl -n ak3s rollout restart deployment/dashboard` after applying.
+This requires Go, Make, and access to Docker. The helper builds the CLI and
+dashboard for the local CPU architecture, starts K3s, streams the image into
+K3s, and applies the platform. It preserves your operator file, waits for the
+dashboard, and installs the CLI. Run the same command after source changes; it
+restarts an existing dashboard to pick up the rebuilt image. See the
+[WSL guide](../docs/wsl-testing.md#configure-and-install-the-cluster-both-paths)
+for a complete configuration.
+
+The default source build uses `ghcr.io/jgador/ak3s-dashboard:dev`. For a custom
+local image, set `dashboard_image` to a tagged reference; the helper builds that
+tag. A SHA-256 digest identifies an existing registry image and cannot be used
+as a build tag. Set `AK3S_CONFIG=/path/to/values.yaml` on the Make command to use
+an operator file outside `/etc/ak3s/values.yaml`.
+
+For a cluster with additional nodes, distribute the image to every node where
+the dashboard may run or push it to a registry the cluster can reach. You can
+build an image separately with `make dashboard-image DASHBOARD_IMAGE=REGISTRY/IMAGE:TAG`.
+Set `dashboard_image` in the cluster's operator values to that image's tag or
+SHA-256 digest, then run `sudo ak3s apply`. Use a new tag for each registry build.
 
 Published release builds select an image by immutable digest. An empty
 `dashboard_image` uses that release default. The release workflow publishes

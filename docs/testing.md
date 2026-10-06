@@ -18,6 +18,12 @@ For local credential checks, follow [secret scanning](secret-scanning.md).
 Gitleaks 8.30.1 or newer 8.x. `make secrets-scan` checks the index and working
 files; `make secrets-history` checks the complete history available locally.
 
+`make test-install-local` tests the local source installation helper with the
+real AK3S configuration parser and simulated Docker, K3s, and installation
+commands. It checks first installs, reruns, custom image tags, configuration
+preservation, temporary file cleanup, and failures or interruptions between
+steps. It requires no root, Docker daemon, or cluster and runs in `make verify`.
+
 `make test-port-forward` tests the background UI helper with simulated K3s
 commands and real loopback sockets. It needs Python 3.9+, curl, and the
 Linux tools listed in the [access guide](operations.md#start-all-uis-for-local-testing),

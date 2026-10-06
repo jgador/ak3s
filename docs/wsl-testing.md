@@ -136,7 +136,7 @@ cd ak3s
 # Switch to the intended branch or commit before building.
 ```
 
-Install **Go 1.25+** inside the lab using the [Go installation instructions](https://go.dev/doc/install); check it with `go version`. Ubuntu's default Go package may be older than the required version.
+Install **Go 1.25+** inside the lab using the [Go installation instructions](https://go.dev/doc/install); check it with `go version`. Ubuntu's default Go package may be older than the required version. Install [Docker Engine for Ubuntu](https://docs.docker.com/engine/install/ubuntu/) inside the lab as well. Docker must be running and accessible to the user running Make. The local installer builds the dashboard image for you.
 
 From the checkout's root directory, run:
 
@@ -147,37 +147,19 @@ git status --short
 go mod download
 make verify
 go test -tags integration -run TestPinnedCharts -v ./internal/ak3s
-make build
-sudo install -m 0755 bin/ak3s /usr/local/bin/ak3s
-ak3s version
 export AK3S_LOCAL_APP_FILE="$PWD/examples/local-app.yaml"
 ```
 
-Stop if a check fails. `make verify` runs tests with race detection, `go vet`, formatting checks, and installer syntax checks. The integration check verifies pinned downloads and Helm rendering over outbound HTTPS. Neither command installs a cluster. Installing `bin/ak3s` places the CLI on the lab's path; the cluster installation comes below.
+Stop if a check fails. `make verify` runs tests with race detection, `go vet`, formatting checks, installer syntax checks, and local installer helper tests. The integration check verifies pinned downloads and Helm rendering over outbound HTTPS. Neither command installs a cluster.
 
-The default build reports version `dev` and a commit identifier. Record the full commit, whether the checkout has uncommitted changes, and the test results. The embedded commit identifier does not identify uncommitted changes; preserve the tested changes before publishing. Rebuild and repeat affected checks after source changes. Use the demo from this checkout when following the runtime checklist; define `AK3S_LOCAL_APP_FILE` again from the checkout root in any new testing terminal.
+The local build reports version `dev` and a commit identifier. Record the full commit, whether the checkout has uncommitted changes, and the test results. The embedded commit identifier does not identify uncommitted changes; preserve the tested changes before publishing. Repeat affected checks after source changes. Use the demo from this checkout when following the runtime checklist; define `AK3S_LOCAL_APP_FILE` again from the checkout root in any new testing terminal.
 
 This path tests the local CLI and cluster behavior. For release artifact and checksum generation, also follow [development checks](testing.md). It does not exercise the published release download and checksum verification; repeat path A after publishing to validate the release installer.
 
-`make build` creates only the CLI. Build the dashboard image separately with
-Docker in the lab or on another Linux machine with the same CPU architecture
-(`amd64` or `arm64`):
-
-```bash
-make dashboard-image
-mkdir -p .tmp
-docker save ghcr.io/jgador/ak3s-dashboard:dev -o .tmp/dashboard-image.tar
-```
-
-The `dev` tag is for this local build. K3s has a separate image store, so building
-the image in Docker does not make it available to Kubernetes. Keep the archive
-for the import step after K3s starts. If built elsewhere, transfer it to
-`.tmp/dashboard-image.tar` in the lab's checkout.
-
-Continue with the configuration and installation steps below. For image updates
-or recovery on an existing local cluster, use [dashboard image recovery](#dashboard-image-recovery).
-See the [dashboard build guide](../dashboard/README.md#build-and-deploy-local-source)
-for custom images and registries.
+Continue below to write the WSL configuration once, then run
+`make install-local`. That command builds the CLI and dashboard, transfers the
+image into K3s, and installs the platform. Use it again for source updates or
+[dashboard image recovery](#dashboard-image-recovery).
 
 ### Configure and install the cluster (both paths)
 
@@ -190,9 +172,9 @@ sudo install -d -m 0755 /etc/ak3s
 sudo nano /etc/ak3s/values.yaml
 ```
 
-**WSL, path A — published release:** enables all four UIs at
-`http://localhost:5173` through one dashboard port-forward. The cluster pulls the
-published dashboard image.
+**WSL — use the same configuration for a published release or local source.**
+Keep `platform: true`. This enables all four UIs at `http://localhost:5173`
+through one dashboard port-forward.
 
 ```yaml
 acme_email: you@example.com # replace with your own valid contact address
@@ -206,23 +188,7 @@ node:
   name: localhost
 ```
 
-**WSL, path B — local source:** prepares the same shared UI paths. Keep
-`platform: false` for the first install, then change it to `true` after importing
-the dashboard image in the source installation steps below.
-
-```yaml
-acme_email: you@example.com # replace with your own valid contact address
-acme_environment: staging
-kubernetes_api_endpoint: localhost
-dashboard_shared_paths: true
-dashboard_hostname: ""
-headlamp_hostname: ""
-platform: false
-node:
-  name: localhost
-```
-
-These WSL examples are for a **new cluster**. `node.name` is the Kubernetes node's identity, independent of the WSL hostname and browser address. Using `localhost` as the node name does not rename the distribution or change network routing. If omitted for a new cluster, AK3S uses the existing hostname in lowercase.
+This WSL example is for a **new cluster**. `node.name` is the Kubernetes node's identity, independent of the WSL hostname and browser address. Using `localhost` as the node name does not rename the distribution or change network routing. If omitted for a new cluster, AK3S uses the existing hostname in lowercase.
 
 For an already installed cluster, preserve its original `node.name` when rerunning AK3S. For example, if `sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get nodes` reports `ak3s-lab`, keep `node.name: ak3s-lab` in that cluster's configuration. It can still be accessed through `localhost`. Changing the node name requires an explicit migration; use a fresh disposable cluster to test a different name.
 
@@ -272,47 +238,35 @@ Continue to the shared runtime checks after installation succeeds.
 
 #### Install local source (path B)
 
-With `platform: false`, preview and install K3s. This first plan should contain
-no Helm releases or dashboard rollout:
+From the checkout root, with the WSL configuration above saved, run:
 
 ```bash
-sudo ak3s install --dry-run
-sudo ak3s install
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get nodes
+make install-local
 ```
 
-After the node is Ready, import the archive from the lab's checkout root:
+The helper builds the CLI and dashboard image, validates the installation,
+starts K3s, streams the image directly into K3s, and applies the full platform.
+It waits for the dashboard and installs the built CLI as `/usr/local/bin/ak3s`.
+It requests sudo access when needed; run Make as your usual lab user.
+
+Keep `platform: true` throughout. The helper handles bootstrap ordering with a
+private temporary configuration and preserves `/etc/ak3s/values.yaml`. You do
+not need to create or manage an image archive. AK3S's ownership, node identity,
+checksum, and upgrade checks still apply.
+
+After it succeeds, check the result:
 
 ```bash
-sudo k3s ctr images import .tmp/dashboard-image.tar &&
-  rm .tmp/dashboard-image.tar
-```
-
-After the import succeeds, edit the same operator configuration:
-
-```bash
-sudo nano /etc/ak3s/values.yaml
-```
-
-Change only the platform setting, keeping the contact email and node settings:
-
-```yaml
-platform: true
-```
-
-Now install the shared add-ons and dashboard, then check their status:
-
-```bash
-sudo ak3s apply --dry-run
-sudo ak3s apply
+ak3s version
 sudo ak3s status
 sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n ak3s get pods
 ```
 
-The dashboard should show `1/1 Running`. Run `ak3s status` after the full platform
-has been applied; it queries cert-manager resources that do not exist while only
-K3s is installed. Continue to the shared runtime checks after the full installation
-succeeds.
+Expect the dashboard to show `1/1 Running`. Run `make install-local` again after
+source changes or an interrupted local installation. It also restarts an
+existing dashboard to use the rebuilt image. Then continue to the shared runtime
+checks. Use `make install-local AK3S_CONFIG=/path/to/values.yaml` if your operator
+configuration is stored elsewhere.
 
 ## 4. Run the shared runtime checks
 
@@ -329,7 +283,7 @@ This only looks up a route; it sends no traffic to the example address. Recomput
 
 ### Test shared UI paths
 
-Both WSL configurations above already enable `/metrics`, `/logs`, and
+The WSL configuration above already enables `/metrics`, `/logs`, and
 `/headlamp` through one local dashboard port-forward.
 
 For an existing cluster that uses an older configuration, first merge
@@ -486,34 +440,24 @@ Repeat the runtime checklist there, including its [public VPS checks](runtime-te
 | Certificate for `hello.test` is not trusted | Expected for the local self-signed demo; only that demo uses `curl -k`. Public trusted issuance is a separate VPS check |
 | ACME errors for a local hostname | Use `local-app.yaml`, not the public-domain example. `hello.test` is not eligible for Let's Encrypt |
 | Pods pending, OOMKilled (terminated because memory was exhausted), or image downloads fail | Check actual RAM and disk space, persistent volume claim (PVC) events, outbound HTTPS, registry connectivity, and `journalctl -u k3s` |
-| Dashboard rollout fails with `ImagePullBackOff` for the local `:dev` image | Follow [dashboard image recovery](#dashboard-image-recovery) to build and import the image into K3s, then resume with `ak3s apply` |
+| Dashboard rollout fails with `ImagePullBackOff` for the local `:dev` image | Run `make install-local` from the checkout; see [dashboard image recovery](#dashboard-image-recovery) |
 | Interrupted installation or failed chart | Fix the underlying failure and rerun AK3S; preserve its ownership, configuration, and state files |
 | First install fails, but K3s is active and the node later becomes Ready | Check the API with `sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get --raw=/readyz`, then rerun `sudo ak3s install` with the same configuration. A Ready node alone does not confirm platform installation; missing ClusterIssuers can make `status` fail until cert-manager is installed |
 
 ### Dashboard image recovery
 
-For an existing local-source installation, including a first install that reached
-the dashboard and failed with `ImagePullBackOff`, build and import the image from
-the checkout root. These commands require Docker:
+For a local-source installation that failed with `ImagePullBackOff`, keep
+`platform: true` and run this from the checkout root:
 
 ```bash
-make dashboard-image
-mkdir -p .tmp
-docker save ghcr.io/jgador/ak3s-dashboard:dev -o .tmp/dashboard-image.tar
-sudo k3s ctr images import .tmp/dashboard-image.tar &&
-  rm .tmp/dashboard-image.tar
+make install-local
 ```
 
-After the import succeeds, restart the dashboard to use the imported image and
-resume reconciliation with the existing configuration:
-
-```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n ak3s rollout restart deployment/dashboard
-sudo ak3s apply
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n ak3s get pods
-```
-
-Expect `1/1 Running`. This recovery also applies when rebuilding the same local
-`dev` tag. For a custom `dashboard_image`, build and import that exact reference.
+The helper rebuilds and imports the image, restarts the dashboard, and completes
+the platform installation. Docker and K3s use separate image stores; a standalone
+`make build` only builds the CLI, and `make dashboard-image` only builds the image
+in Docker. The helper handles both stores. A custom `dashboard_image` must use a
+tag for local builds; see the [dashboard build guide](../dashboard/README.md#build-and-deploy-local-source)
+for registry images and additional nodes.
 
 Reference: Microsoft's [WSL commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands), [configuration](https://learn.microsoft.com/en-us/windows/wsl/wsl-config), and [systemd setup](https://learn.microsoft.com/en-us/windows/wsl/systemd).
