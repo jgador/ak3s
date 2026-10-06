@@ -188,6 +188,11 @@ func reconcile(ctx context.Context, p Plan, b *Bundle, runner Runner, write func
 			return fmt.Errorf("apply %s: %w", name, err)
 		}
 	}
+	if p.Config.DashboardHostname == "" {
+		if err = kube(nil, "-n", "ak3s", "delete", "ingress", "--selector=app.kubernetes.io/managed-by=ak3s,app.kubernetes.io/name=ak3s-dashboard", "--ignore-not-found"); err != nil {
+			return fmt.Errorf("remove disabled dashboard ingress: %w", err)
+		}
+	}
 	if err = kube(nil, "-n", "ak3s", "rollout", "status", "deployment/dashboard", "--timeout=180s"); err != nil {
 		return fmt.Errorf("wait for AK3S dashboard: %w; check the dashboard image and rerun", err)
 	}

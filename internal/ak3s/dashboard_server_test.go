@@ -146,13 +146,137 @@ func TestDashboardAPIProjectionPaginationAndTokenRotation(t *testing.T) {
 	}
 }
 
+func TestDashboardSharedIngressAndNetworkPolicy(t *testing.T) {
+	for _, mode := range []struct {
+		host   string
+		shared bool
+	}{{}, {shared: true}, {host: "ak3s.example.com"}, {host: "ak3s.example.com", shared: true}} {
+		host := mode.host
+		c := testConfig(t)
+		c.DashboardHostname = host
+		c.DashboardSharedPaths = mode.shared
+		c.ACMEEnvironment = "production"
+		raw, err := DashboardManifests(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateManifests(raw); err != nil {
+			t.Fatal(err)
+		}
+		dec := yaml.NewDecoder(bytes.NewReader(raw))
+		ingresses := 0
+		for {
+			var resource struct {
+				Kind     string
+				Metadata struct{ Annotations map[string]string }
+				Spec     struct {
+					IngressClassName string `yaml:"ingressClassName"`
+					TLS              []struct {
+						SecretName string `yaml:"secretName"`
+						Hosts      []string
+					}
+					Rules []struct {
+						Host string
+						HTTP struct {
+							Paths []struct {
+								Path    string
+								Backend struct {
+									Service struct {
+										Name string
+										Port struct{ Number int }
+									}
+								}
+							}
+						}
+					}
+					Ingress []struct {
+						From []struct {
+							NamespaceSelector struct {
+								MatchLabels map[string]string `yaml:"matchLabels"`
+							} `yaml:"namespaceSelector"`
+							PodSelector struct {
+								MatchLabels map[string]string `yaml:"matchLabels"`
+							} `yaml:"podSelector"`
+						}
+						Ports []struct{ Port int }
+					}
+				}
+			}
+			if err := dec.Decode(&resource); err == io.EOF {
+				break
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if resource.Kind == "Ingress" {
+				ingresses++
+				s := resource.Spec
+				if s.IngressClassName != "nginx" || len(s.Rules) != 1 || s.Rules[0].Host != host || len(s.TLS) != 1 || s.TLS[0].SecretName != "dashboard-tls" || len(s.TLS[0].Hosts) != 1 || s.TLS[0].Hosts[0] != host {
+					t.Fatal("incorrect ingress host or TLS")
+				}
+				paths := s.Rules[0].HTTP.Paths
+				if len(paths) != 1 || paths[0].Path != "/" || paths[0].Backend.Service.Name != "dashboard" || paths[0].Backend.Service.Port.Number != 80 {
+					t.Fatal("shared paths do not reach dashboard router")
+				}
+				a := resource.Metadata.Annotations
+				if a["nginx.org/ssl-redirect"] != "true" || a["nginx.org/websocket-services"] != "dashboard" || a["nginx.org/proxy-buffering"] != "false" || a["cert-manager.io/cluster-issuer"] != "letsencrypt-production" || a["acme.cert-manager.io/http01-edit-in-place"] != "true" {
+					t.Fatal("missing TLS or WebSocket settings")
+				}
+			}
+			if resource.Kind == "NetworkPolicy" {
+				if host == "" {
+					if len(resource.Spec.Ingress) != 0 {
+						t.Fatal("private dashboard allows pod ingress")
+					}
+				} else {
+					if len(resource.Spec.Ingress) != 1 {
+						t.Fatal("missing controller access")
+					}
+					rule := resource.Spec.Ingress[0]
+					if len(rule.From) != 1 || len(rule.Ports) != 1 || rule.Ports[0].Port != 8080 {
+						t.Fatal("network access is too broad")
+					}
+					peer := rule.From[0]
+					if peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] != "ingress-nginx" || peer.PodSelector.MatchLabels["app.kubernetes.io/instance"] != "nginx-ingress" || peer.PodSelector.MatchLabels["app.kubernetes.io/name"] != "nginx-ingress" {
+						t.Fatal("controller namespace and pod selectors must be combined")
+					}
+				}
+			}
+		}
+		if host == "" && ingresses != 0 || host != "" && ingresses != 1 {
+			t.Fatal("unexpected ingress count")
+		}
+		if strings.Contains(string(raw), "/etc/ak3s-dashboard-auth") != (host != "") {
+			t.Fatal("authentication volume does not follow ingress setting")
+		}
+		metadata, err := dashboardMetadataFor(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if metadata.DashboardSharedPaths != (mode.shared || host != "") {
+			t.Fatal("dashboard shared paths not passed to server metadata")
+		}
+		data := dashboardProjection(metadata, dashboardVersion{}, dashboardResources{}, dashboardResources{})
+		for _, tool := range data.Tools {
+			if host != "" && (tool.URL != "https://"+host+"/"+tool.ID || tool.PortForward != "" || data.Access != "https") {
+				t.Fatal("public tool link or access guide is incorrect")
+			}
+			if host == "" && (!strings.HasPrefix(tool.URL, "http://127.0.0.1:") || tool.PortForward == "" || data.Access != "local") {
+				t.Fatal("local access changed")
+			}
+			if mode.shared && host == "" && tool.ID == "headlamp" && tool.URL != "http://127.0.0.1:8080/headlamp/" {
+				t.Fatal("direct Headlamp forward lost its configured prefix")
+			}
+		}
+	}
+}
+
 func TestDashboardHTTPAccessAndFailures(t *testing.T) {
 	assets := fstest.MapFS{"index.html": {Data: []byte("<html>AK3S</html>")}, "assets/app.js": {Data: []byte("const app = true;")}}
 	calls := 0
 	h := dashboardHandler(assets, func(context.Context) (dashboardData, error) {
 		calls++
 		return dashboardData{CollectedAt: "now"}, nil
-	})
+	}, dashboardAccess{})
 	for _, tc := range []struct {
 		path, method, host, remote, origin, site string
 		status                                   int
@@ -202,7 +326,7 @@ func TestDashboardHTTPAccessAndFailures(t *testing.T) {
 	}
 	h = dashboardHandler(assets, func(context.Context) (dashboardData, error) {
 		return dashboardData{}, errors.New("fictional-private-value")
-	})
+	}, dashboardAccess{})
 	for _, path := range []string{"/api/snapshot", "/readyz"} {
 		r := httptest.NewRequest("GET", "http://localhost:5173"+path, nil)
 		r.RemoteAddr = "127.0.0.1:1234"

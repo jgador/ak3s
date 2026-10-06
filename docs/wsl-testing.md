@@ -196,7 +196,7 @@ sudo nano /etc/ak3s/values.yaml
 
 ```yaml
 acme_email: you@example.com # replace with your own valid contact address
-api_endpoint: localhost
+kubernetes_api_endpoint: localhost
 node:
   name: localhost
 ```
@@ -207,7 +207,7 @@ For an already installed cluster, preserve its original `node.name` when rerunni
 
 The full platform requires a contact email and creates Let's Encrypt ClusterIssuers. Those issuers may register accounts over outbound HTTPS using ACME (Automated Certificate Management Environment), the protocol for automated certificate issuance. The local demo uses a separate self-signed issuer. No public domain is required. Leave `headlamp_hostname` unset to keep the dashboard private.
 
-Keep `api_endpoint` on loopback (`localhost` or `127.0.0.1`) for this single-node test environment: WSL's NAT IP can change after restart. This setting adds an address to the API certificate; it does not restrict which addresses K3s listens on. K3s and ingress still listen on the node. For the real VPS, use a reachable VPS IP or API DNS name and apply the [VPS firewall requirements](vps.md#firewall-requirements).
+Keep `kubernetes_api_endpoint` on loopback (`localhost` or `127.0.0.1`) for this single-node test environment: WSL's NAT IP can change after restart. This setting adds an address to the API certificate; it does not restrict which addresses K3s listens on. K3s and ingress still listen on the node. For the real VPS, use a reachable VPS IP or API DNS name and apply the [VPS firewall requirements](vps.md#firewall-requirements).
 
 Preview, review, then install:
 
@@ -257,6 +257,53 @@ Windows-to-WSL access in addition to the Linux checks. With
 unavailable, run the curl checks inside the test environment first and follow
 [WSL networking guidance](https://learn.microsoft.com/en-us/windows/wsl/networking).
 Do not use `--address 0.0.0.0` to make private services reachable.
+
+### Test shared UI paths
+
+Use the same `/metrics`, `/logs`, and `/headlamp` paths as on the VPS through one
+local dashboard port-forward. First build and deploy the updated CLI and dashboard
+image using [the local source instructions](#b-test-local-source-before-release).
+In your existing `/etc/ak3s/values.yaml`, add these overrides and preserve your
+contact email, Kubernetes API endpoint, and node settings:
+
+```yaml
+dashboard_shared_paths: true
+dashboard_hostname: ""
+```
+
+Leave `headlamp_hostname` unset. Apply the configuration, then forward the
+dashboard Service from WSL:
+
+```bash
+sudo ak3s apply --dry-run
+sudo ak3s apply
+sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n ak3s port-forward --address 127.0.0.1 service/dashboard 5173:80
+```
+
+If port 5173 is already occupied, stop the existing dashboard forward or Vite
+server first. The port-forward command stays running. In Windows, open:
+
+| URL | UI |
+| --- | --- |
+| `http://localhost:5173/` | AK3S dashboard |
+| `http://localhost:5173/metrics` | VictoriaMetrics |
+| `http://localhost:5173/logs` | VictoriaLogs |
+| `http://localhost:5173/headlamp` | Headlamp |
+
+`127.0.0.1` also works. The dashboard cards use the address in your browser, so
+they stay on the WSL test cluster. Metrics and logs redirect to their native UI
+paths under the same prefixes. No public DNS, dashboard login Secret, or HTTPS
+certificate is needed for these local requests. Headlamp still needs its temporary
+Kubernetes viewer token, as described in the [access guide](operations.md#access).
+
+Verify a metrics query, a log search, and Headlamp resource browsing. This tests
+the shared paths and Windows-to-WSL forwarding. Test NGINX ingress, trusted HTTPS,
+and the public password prompt separately on the VPS.
+
+If you also use separate tool port-forwards or Vite development, direct Headlamp
+access is `http://127.0.0.1:8080/headlamp/` while shared paths are enabled. The
+metrics and logs direct URLs stay the same. Set `dashboard_shared_paths: false`
+and apply again to return to the default separate-tool setup.
 
 ### Test a distribution stop and start
 
@@ -330,7 +377,7 @@ Remove private test exports when no longer needed. Restore the original `%UserPr
 
 ## Move to the VPS
 
-Create a fresh VPS that meets the [host requirements](vps.md#host-requirements). Install the **same tested AK3S release**, with a real contact email and VPS API endpoint. If you tested local source, publish the tested source and repeat the published-release path first. Do not copy the test environment's datastore, token, kubeconfig, self-signed TLS secret, or WSL configuration into the VPS.
+Create a fresh VPS that meets the [host requirements](vps.md#host-requirements). Install the **same tested AK3S release**, with a real contact email and a Kubernetes API endpoint for the VPS. If you tested local source, publish the tested source and repeat the published-release path first. Do not copy the test environment's datastore, token, kubeconfig, self-signed TLS secret, or WSL configuration into the VPS.
 
 Repeat the runtime checklist there, including its [public VPS checks](runtime-testing.md#public-vps-checks). Confirm external DNS, API access restrictions, HTTP and HTTPS routing, staging then production certificate issuance, reboot recovery, and restoration using the real backup destination. Match the workload and retention settings you intend to run; successful tests with 4 GB RAM do not establish the resources needed for a production deployment.
 

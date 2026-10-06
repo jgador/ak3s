@@ -120,7 +120,7 @@ func dashboardLocalRequest(r *http.Request) bool {
 	return true
 }
 
-func dashboardHandler(assets fs.FS, collect func(context.Context) (dashboardData, error)) http.Handler {
+func dashboardHandler(assets fs.FS, collect func(context.Context) (dashboardData, error), access dashboardAccess) http.Handler {
 	var mu sync.Mutex
 	var cached []byte
 	var collected time.Time
@@ -137,6 +137,13 @@ func dashboardHandler(assets fs.FS, collect func(context.Context) (dashboardData
 		if err != nil {
 			return nil, err
 		}
+		if access.usesSharedPaths() {
+			data.Access = "shared"
+			for i := range data.Tools {
+				data.Tools[i].URL = "/" + data.Tools[i].ID
+				data.Tools[i].PortForward = ""
+			}
+		}
 		cached, err = json.Marshal(data)
 		if err == nil {
 			collected = time.Now()
@@ -144,28 +151,55 @@ func dashboardHandler(assets fs.FS, collect func(context.Context) (dashboardData
 		return cached, err
 	}
 	files := http.FileServer(http.FS(assets))
+	tools := dashboardToolHandlers()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'")
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "Only read-only requests are supported.", http.StatusMethodNotAllowed)
-			return
-		}
-		if r.URL.Path == "/healthz" {
+		if r.URL.Path == "/healthz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if r.URL.Path == "/readyz" {
+		if r.URL.Path == "/readyz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 			if _, err := snapshot(r.Context()); err != nil {
 				http.Error(w, "Dashboard data unavailable.", http.StatusServiceUnavailable)
 			}
 			return
 		}
-		if !dashboardLocalRequest(r) {
-			http.Error(w, "Local, same-origin access is required.", http.StatusForbidden)
+		if !access.accepts(r) {
+			http.Error(w, "Use local access or the configured HTTPS hostname with the same origin.", http.StatusForbidden)
+			return
+		}
+		tool := ""
+		if access.usesSharedPaths() {
+			for name := range tools {
+				if r.URL.Path == "/"+name || strings.HasPrefix(r.URL.Path, "/"+name+"/") {
+					tool = name
+					break
+				}
+			}
+		}
+		if tool != "headlamp" && !dashboardLocalRequest(r) && (access.authenticate == nil || !access.authenticate(r)) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="AK3S", charset="UTF-8"`)
+			http.Error(w, "Sign in to access the dashboard, metrics, and logs.", http.StatusUnauthorized)
+			return
+		}
+		if tool != "" {
+			if r.URL.Path == "/"+tool || r.URL.Path == "/"+tool+"/" && tool != "headlamp" {
+				path := map[string]string{"metrics": "/metrics/vmui/", "logs": "/logs/select/vmui/", "headlamp": "/headlamp/"}[tool]
+				if r.URL.RawQuery != "" {
+					path += "?" + r.URL.RawQuery
+				}
+				http.Redirect(w, r, path, http.StatusTemporaryRedirect)
+				return
+			}
+			tools[tool].ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'")
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "Only read-only requests are supported.", http.StatusMethodNotAllowed)
 			return
 		}
 		if r.URL.Path == "/api/snapshot" {
@@ -199,7 +233,7 @@ func dashboardHandler(assets fs.FS, collect func(context.Context) (dashboardData
 	})
 }
 
-// ServeDashboard runs the private in-cluster dashboard with a read-only service account.
+// ServeDashboard runs the in-cluster dashboard with a read-only service account.
 func ServeDashboard(ctx context.Context, assets fs.FS) error {
 	if _, err := fs.Stat(assets, "index.html"); err != nil {
 		return errors.New("dashboard assets are missing; build the dashboard image")
@@ -226,8 +260,10 @@ func ServeDashboard(ctx context.Context, assets fs.FS) error {
 		Timeout: 8 * time.Second, Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("Kubernetes redirects are not allowed") },
 	}, readToken: func() ([]byte, error) { return os.ReadFile(dashboardServiceAccount + "token") }}
-	server := &http.Server{Addr: ":8080", ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: time.Minute,
-		Handler: dashboardHandler(assets, func(ctx context.Context) (dashboardData, error) { return api.snapshot(ctx, metadata) })}
+	// Tool responses can stream logs and Kubernetes watches for long periods.
+	server := &http.Server{Addr: ":8080", ReadHeaderTimeout: 5 * time.Second, IdleTimeout: time.Minute,
+		Handler: dashboardHandler(assets, func(ctx context.Context) (dashboardData, error) { return api.snapshot(ctx, metadata) },
+			dashboardAccess{hostname: metadata.DashboardHostname, sharedPaths: metadata.DashboardSharedPaths, authenticate: dashboardAuthentication(os.ReadFile)})}
 	stopped := make(chan struct{})
 	defer close(stopped)
 	go func() {

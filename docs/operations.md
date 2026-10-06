@@ -80,9 +80,10 @@ sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n ak3s port-forward --a
 
 Open `http://127.0.0.1:5173`. For a remote server, also run
 `ssh -N -L 5173:127.0.0.1:5173 USER@VPS_ADDRESS` from your workstation.
-The dashboard requires Kubernetes port-forward access; it has no separate login.
-Its NetworkPolicy blocks pod-network ingress, and the server checks loopback peers,
-local Host headers, and browser origins. Keep it private.
+Local dashboard access requires Kubernetes port-forward permission and has no
+separate login. With the default settings, its NetworkPolicy blocks pod-network
+ingress, and the server checks loopback peers, local Host headers, and browser
+origins. Use the shared hostname option below for HTTPS access.
 
 Headlamp provides a read-only viewer login:
 
@@ -103,6 +104,100 @@ sudo k3s kubectl -n observability port-forward service/victoria-logs 9428:9428
 ```
 
 VictoriaMetrics scrapes metrics from infrastructure and Services with `prometheus.io/scrape: "true"`, `prometheus.io/port`, and `prometheus.io/path` annotations. VictoriaLogs collects container standard output and standard error (stdout/stderr). Keep both services private.
+
+### Shared hostname
+
+For the same paths through local port-forwarding, follow
+[shared UI paths in WSL](wsl-testing.md#test-shared-ui-paths).
+
+Set `dashboard_hostname` to serve all four UIs through one HTTPS address:
+
+| URL | UI |
+| --- | --- |
+| `https://ak3s.example.com/` | AK3S dashboard |
+| `https://ak3s.example.com/metrics` | VictoriaMetrics |
+| `https://ak3s.example.com/logs` | VictoriaLogs |
+| `https://ak3s.example.com/headlamp` | Headlamp |
+
+Use your domain in place of `ak3s.example.com`. Point its DNS A record to the VPS
+and remove stale AAAA records. Ports 80 and 443 must reach NGINX; port 80 is also
+needed for certificate issuance. If DNS is proxied through another service,
+ensure requests reach this ingress and use HTTPS to the origin.
+
+After installing AK3S with its default private access, create the login Secret
+on the server. From the repository root, these Bash commands prompt for credentials
+without placing the password in shell history or command arguments:
+
+```bash
+sudo k3s kubectl create namespace ak3s --dry-run=client -o yaml | sudo k3s kubectl apply -f -
+(
+  set -e
+  umask 077
+  mkdir -p .tmp/dashboard-auth
+  trap 'rm -f .tmp/dashboard-auth/username .tmp/dashboard-auth/password; rmdir .tmp/dashboard-auth' EXIT
+  read -r -p 'Dashboard username: ' AK3S_DASHBOARD_USERNAME
+  read -r -s -p 'Dashboard password: ' AK3S_DASHBOARD_PASSWORD
+  printf '\n'
+  test -n "$AK3S_DASHBOARD_USERNAME" && test -n "$AK3S_DASHBOARD_PASSWORD"
+  printf '%s' "$AK3S_DASHBOARD_USERNAME" > .tmp/dashboard-auth/username
+  printf '%s' "$AK3S_DASHBOARD_PASSWORD" > .tmp/dashboard-auth/password
+  sudo k3s kubectl -n ak3s create secret generic dashboard-auth \
+    --from-file=username=.tmp/dashboard-auth/username \
+    --from-file=password=.tmp/dashboard-auth/password \
+    --dry-run=client -o yaml | sudo k3s kubectl apply -f -
+)
+```
+
+Add these overrides to your existing `/etc/ak3s/values.yaml`, preserving its
+contact email and node settings:
+
+```yaml
+dashboard_hostname: ak3s.example.com
+dashboard_auth_secret: dashboard-auth
+acme_environment: staging
+```
+
+Leave `headlamp_hostname` unset. Build and deploy the matching
+[CLI and dashboard image](../dashboard/README.md#build-and-deploy-local-source)
+when working from source, then apply the configuration:
+
+```bash
+sudo ak3s apply --dry-run
+sudo ak3s apply
+sudo k3s kubectl -n ak3s get ingress/dashboard certificate/dashboard-tls
+```
+
+Confirm staging issuance, then set `acme_environment: production` and run
+`sudo ak3s apply` again. Wait for the production certificate before entering
+credentials in a browser. Staging certificates are intentionally untrusted.
+
+The browser prompts for the shared username and password for the dashboard,
+metrics, and logs. Credentials stay in the mounted Secret and are checked by
+the dashboard server; they are not forwarded to the tool Services. Headlamp
+uses its Kubernetes token login, including for resource changes and WebSockets.
+Generate a temporary viewer token with the command in the local access section.
+
+`/metrics` redirects to `/metrics/vmui/`, and `/logs` redirects to
+`/logs/select/vmui/`. Their assets and query APIs stay under the corresponding
+prefix. The deployed dashboard links use the current browser address, including
+when accessed through a local port-forward. Internal scraping,
+log ingestion, and direct VictoriaMetrics/VictoriaLogs port-forwards keep their
+existing addresses. Direct Headlamp port-forward access uses
+`http://127.0.0.1:8080/headlamp/` while shared paths are enabled.
+
+The Services remain ClusterIP. The dashboard NetworkPolicy allows port 8080
+only from the bundled NGINX controller; its Kubernetes service account still
+has no Secret-reading or write permissions. To rotate credentials, repeat the
+Secret command and allow Kubernetes to update the mounted files. No dashboard
+restart is needed. A missing Secret prevents the public dashboard pod from
+starting; missing, empty, or unreadable credentials cannot authenticate.
+
+To return to local access, remove `dashboard_hostname` from the operator file
+and run `sudo ak3s apply`. Reconciliation removes the managed ingress and restores
+the dashboard's deny-all ingress policy. Set `dashboard_shared_paths: true` to
+keep the tool paths available through a local dashboard forward, or leave it
+`false` to restore separate-tool access and Headlamp's original base URL. The
+login Secret and TLS certificate remain available for reuse.
 
 ## Apply and upgrade
 

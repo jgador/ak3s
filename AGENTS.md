@@ -26,7 +26,7 @@ Use Go 1.25+, Make, Bash, and jq 1.6+.
 
 ## Coding Style & Naming Conventions
 
-Use `gofmt` and tabs for Go, two-space indentation for YAML and Bash, and tabs for Make recipes. Use exported CamelCase and unexported mixedCaps Go names; retain established AK3S YAML keys such as `api_endpoint`. Document exported declarations.
+Use `gofmt` and tabs for Go, two-space indentation for YAML and Bash, and tabs for Make recipes. Use exported CamelCase and unexported mixedCaps Go names; retain established AK3S YAML keys such as `kubernetes_api_endpoint`. Document exported declarations.
 
 ## Testing Guidelines
 

@@ -2,11 +2,16 @@
 acme_email: operator@example.com
 
 # Replace with your VPS IPv4 or API DNS name.
-api_endpoint: 192.0.2.10
+kubernetes_api_endpoint: 192.0.2.10
 
 # metrics_retention: 14d
 # dashboard_image: registry.example.com/ak3s-dashboard:v1.2.3
-# headlamp_hostname: dashboard.example.com
+# dashboard_hostname: ak3s.example.com
+# dashboard_shared_paths: true # also enables the paths for local port-forwarding
+# dashboard_auth_secret: dashboard-auth
+# acme_environment: production
+# For standalone Headlamp instead of the shared hostname:
+# headlamp_hostname: headlamp.example.com
 # helm_values:
 #   nginx-ingress:
 #     controller:

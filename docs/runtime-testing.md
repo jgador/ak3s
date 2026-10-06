@@ -123,6 +123,28 @@ returns `403`. Keep snapshots private. Repeat after `ak3s apply` and pod
 replacement to check configuration updates and recovery. Source builds require
 [importing the local dashboard image](../dashboard/README.md#build-and-deploy-local-source).
 
+For optional shared HTTPS access, follow [the setup guide](operations.md#shared-hostname)
+on a disposable VPS with a real DNS hostname. After production certificate issuance:
+
+- Confirm HTTP redirects to HTTPS and the HTTPS certificate is trusted without `-k`.
+- Verify `/`, `/api/snapshot`, `/metrics/vmui/`, and `/logs/select/vmui/` return
+  `401` without credentials and with an incorrect password. Use `curl --user USER`
+  to prompt for a password without storing it in command history.
+- Sign in through a browser. Verify live dashboard data, metrics queries, and log
+  searches. Follow `/metrics` and `/logs` redirects and confirm their JavaScript,
+  styles, and API requests remain under the correct prefixes.
+- Open `/headlamp`, sign in with a temporary viewer token, and browse resources.
+  Verify pod log streaming or a resource watch works through the proxy. Confirm
+  the viewer still cannot read Secrets or change workloads.
+- Rotate the login Secret and confirm the old password stops working after the
+  mounted Secret updates. Check hostile Origin requests still return `403`.
+- Repeat after `ak3s apply` and pod replacement. Then remove `dashboard_hostname`
+  and apply again: the managed ingress must disappear, ordinary pods must be
+  unable to reach the dashboard, and local port-forwards must still work.
+
+Unit tests and Helm rendering do not validate public DNS, certificate issuance,
+browser integration, or the cluster's NetworkPolicy enforcement.
+
 Then check Headlamp:
 
 ```bash
