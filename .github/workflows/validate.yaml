@@ -1,11 +1,13 @@
 name: Validate AK3S
 on:
   push:
+    branches: [master, 'release/**']
   pull_request:
 permissions:
   contents: read
 jobs:
   test:
+    name: ak3s-checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

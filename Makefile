@@ -12,7 +12,7 @@ LDFLAGS = -s -w -X github.com/jgador/ak3s/internal/ak3s.Version=$(VERSION) -X gi
 
 # These names are tasks, so run them even if a file has the same name.
 .PHONY: build test verify release secrets-setup secrets-scan secrets-staged secrets-history test-secrets
-.PHONY: dashboard-image port-forward port-forward-status port-forward-stop test-port-forward
+.PHONY: dashboard-image port-forward port-forward-status port-forward-stop test-port-forward test-release
 
 # Build bin/ak3s for the current OS and architecture without C bindings.
 build:
@@ -33,6 +33,11 @@ verify: test
 	bash -n install.sh
 	for script in scripts/*.sh scripts/lib/*.sh; do bash -n "$$script" || exit; done
 	sh -n .githooks/pre-commit
+	$(MAKE) test-release
+
+# Check release branch and version guards without contacting GitHub.
+test-release:
+	bash scripts/check-release.test.sh
 
 # Local secret scanning uses Bash, jq, and Gitleaks 8.30.1 or newer 8.x.
 secrets-setup:

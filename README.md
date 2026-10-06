@@ -77,7 +77,7 @@ The example uses Let's Encrypt staging. After testing issuance, select `letsencr
 
 ## Development
 
-With Go 1.25+ and Make:
+With Go 1.25+, Make, Bash, and jq 1.6+:
 
 ```bash
 go mod download
@@ -86,7 +86,10 @@ make verify   # tests, vet, formatting, shell syntax
 make release  # Linux amd64/arm64 binaries and checksums in dist/
 ```
 
-See [testing and releases](docs/testing.md). Licensed under [MIT](LICENSE).
+Develop on `master` and backport selected fixes to protected `release/<major>.<minor>`
+branches. Releases are published manually from a release branch. See
+[testing](docs/testing.md) and [releases and backports](docs/releases.md).
+Licensed under [MIT](LICENSE).
 
 For [local secret scanning](docs/secret-scanning.md), use Bash, jq, and
 Gitleaks 8.30.1 or newer 8.x, then run `make secrets-setup` and

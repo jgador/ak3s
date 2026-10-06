@@ -2,7 +2,7 @@
 
 To try a full installation before deploying to a VPS, start with the [WSL2 testing guide](wsl-testing.md). It provides separate paths for [a published release](wsl-testing.md#a-test-a-published-release) and [local source before release](wsl-testing.md#b-test-local-source-before-release). Both use a disposable Linux environment and run the same [runtime checklist](runtime-testing.md) used on a [VPS](vps.md). The development tests below do not install a cluster.
 
-Use Go 1.25+, Make, Bash, and standard Linux utilities:
+Use Go 1.25+, Make, Bash, jq 1.6+, and standard Linux utilities:
 
 ```bash
 go mod download
@@ -49,9 +49,11 @@ Before releasing, use disposable supported VPSs or full Linux virtual machines t
 
 ## Publishing
 
-After validation, push a `vMAJOR.MINOR.PATCH` tag. GitHub Actions verifies, builds,
-and publishes the dashboard image for Linux amd64/arm64, then embeds its
-immutable digest in the CLI binaries and publishes
-the binaries, installer, and checksums. The `ghcr.io/jgador/ak3s-dashboard` package
-must be public so cluster nodes can pull it without registry credentials.
-Merging a pull request does not publish a release.
+Develop on `master`, backport selected fixes to protected `release/<major>.<minor>`
+branches, and publish manually from a release branch. See the
+[release and backport guide](releases.md) for branch creation, protection,
+backport commands, publication, and failed-run handling.
+
+Merging a pull request or pushing a tag does not publish a release. `make release`
+only builds local artifacts. `make test-release` checks the release source and
+version guards using simulated GitHub responses; it also runs in `make verify`.

@@ -6,11 +6,11 @@
 - `internal/ak3s/` handles configuration, planning, downloads, rendering, host inspection, and reconciliation. Tests sit beside source files as `*_test.go`.
 - `platform/` embeds defaults, pinned versions, Helm values, and Kubernetes manifests.
 - `examples/` contains configuration and application examples; `docs/` covers deployment, operations, and testing.
-- `.github/workflows/` validates changes and publishes tagged releases; `.codex/` contains the Go-formatting hook.
+- `.github/workflows/` validates changes and manually publishes from protected release branches; `.codex/` contains the Go-formatting hook.
 
 ## Build, Test, and Development Commands
 
-Use Go 1.25+, Make, and Bash.
+Use Go 1.25+, Make, Bash, and jq 1.6+.
 
 - `go mod download`: download dependencies.
 - `make build`: build `bin/ak3s` for the current machine.
@@ -21,6 +21,7 @@ Use Go 1.25+, Make, and Bash.
 - `make secrets-scan`: scan the index and non-ignored working files; `make secrets-history` scans local Git history.
 - `make test-secrets`: test secret scanning and the Git hook in isolated repositories.
 - `make release`: build Linux amd64/arm64 binaries and checksums in `dist/`.
+- `make test-release`: test release branch and version guards without GitHub access.
 - `go test -tags integration -run TestPinnedCharts -v ./internal/ak3s`: verify downloads and Helm rendering; requires outbound HTTPS.
 
 ## Coding Style & Naming Conventions
@@ -34,6 +35,10 @@ Use Go's `testing` package, `Test…` names, and `Fuzz…` names for fuzz tests.
 ## Security, Configuration & Agent Instructions
 
 Keep credentials and rendered secrets private. Use fictional examples. Preserve ownership, identity, token, checksum, and upgrade checks. Store operator overrides outside tracked defaults.
+
+Develop on `master`. Backport selected fixes through pull requests into protected
+`release/<major>.<minor>` branches. Publish manually from a release branch; see
+[releases and backports](docs/releases.md).
 
 Treat employer information as confidential. Do not read employer files or copy employer information from other projects, conversations, configuration, or inherited environment variables. If encountered, stop affected work without reproducing it.
 

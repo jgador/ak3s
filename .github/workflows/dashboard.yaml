@@ -1,27 +1,13 @@
 name: Validate dashboard
 on:
   push:
-    paths:
-      - "dashboard/**"
-      - "cmd/ak3s-dashboard/**"
-      - "internal/ak3s/dashboard*.go"
-      - "platform/manifests/dashboard.yaml"
-      - "go.mod"
-      - "go.sum"
-      - ".github/workflows/dashboard.yaml"
+    branches: [master, 'release/**']
   pull_request:
-    paths:
-      - "dashboard/**"
-      - "cmd/ak3s-dashboard/**"
-      - "internal/ak3s/dashboard*.go"
-      - "platform/manifests/dashboard.yaml"
-      - "go.mod"
-      - "go.sum"
-      - ".github/workflows/dashboard.yaml"
 permissions:
   contents: read
 jobs:
   build:
+    name: dashboard-checks
     runs-on: ubuntu-latest
     defaults:
       run:
