@@ -24,21 +24,22 @@ export function Upgrade({ snapshot }: { snapshot: DashboardSnapshot }) {
           <CircleArrowUp size={24} />
         </span>
         <div>
-          <h2>A new version is available.</h2>
+          <h2>{snapshot.upgrade.availableVersion ? "A new version is available." : "Review cluster upgrades."}</h2>
           <p>Review the release and plan your next AK3S upgrade.</p>
         </div>
-        <span className="badge badge-lime">Update available</span>
+        <span className="badge">{snapshot.upgrade.availableVersion ? "Update available" : "Not checked"}</span>
       </div>
       <div className="release-comparison">
         <section className="panel release-card">
           <div className="release-label">
             <Box size={17} />
-            <span>Currently installed</span>
+            <span>Last attempted AK3S release</span>
             <span className="badge">Current</span>
           </div>
           <h2>{snapshot.cluster.ak3sVersion}</h2>
           <p>
-            AK3S on <strong>{snapshot.cluster.name}</strong>
+            AK3S on{" "}
+            <strong>{snapshot.cluster.name?.trim() || "Not available"}</strong>
           </p>
           <div className="release-detail">
             <Check size={15} />
@@ -52,10 +53,10 @@ export function Upgrade({ snapshot }: { snapshot: DashboardSnapshot }) {
           <div className="release-label">
             <ArrowUpToLine size={17} />
             <span>Available version</span>
-            <span className="badge badge-lime">Available</span>
+            <span className="badge">{snapshot.upgrade.availableVersion ? "Available" : "Not checked"}</span>
           </div>
-          <h2>{snapshot.upgrade.availableVersion}</h2>
-          <p>Example AK3S release</p>
+          <h2>{snapshot.upgrade.availableVersion ?? "Not checked"}</h2>
+          <p>Browse published releases before choosing an upgrade.</p>
           <div className="release-detail">
             <Info size={15} />
             <span>Review the release's pinned component versions.</span>
@@ -64,7 +65,7 @@ export function Upgrade({ snapshot }: { snapshot: DashboardSnapshot }) {
       </div>
       <p className="demo-version-note">
         <Info size={14} />
-        AK3S versions shown here are examples for this mockup.
+        The AK3S version comes from the last installation attempt. Available releases are not checked automatically.
       </p>
       <section className="panel upgrade-plan">
         <div className="upgrade-plan-heading">

@@ -67,7 +67,7 @@ export function Configuration({ snapshot }: { snapshot: DashboardSnapshot }) {
             <span>
               {view === "effective"
                 ? "Defaults are merged with operator overrides."
-                : "Only values that override the embedded defaults are shown."}
+                : "Settings from the operator configuration file are shown."}
             </span>
           </div>
         </section>

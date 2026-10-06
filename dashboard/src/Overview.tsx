@@ -74,7 +74,7 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
             <span className="value-caption">
               / {cluster.nodes.length} ready
             </span>
-            {readyNodes === cluster.nodes.length && (
+            {cluster.nodes.length > 0 && readyNodes === cluster.nodes.length && (
               <span className="mini-check">
                 <Check size={12} />
               </span>
@@ -93,7 +93,7 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
           </div>
           <div className="summary-value">{cluster.ak3sVersion}</div>
           <a className="summary-update" href="#/upgrade">
-            Update available <ArrowRight size={13} />
+            {snapshot.upgrade.availableVersion ? "Update available" : "Review upgrades"} <ArrowRight size={13} />
           </a>
         </article>
         <article className="summary-card">
@@ -227,7 +227,7 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
             </h2>
             <span className="all-healthy">
               <span className="status-dot" />
-              {healthyComponents === components.length
+              {components.length > 0 && healthyComponents === components.length
                 ? "All healthy"
                 : `${healthyComponents} healthy`}
             </span>
@@ -297,7 +297,7 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
             <dl className="cluster-properties">
               <div>
                 <dt>Cluster name</dt>
-                <dd>{cluster.name}</dd>
+                <dd>{cluster.name?.trim() || "Not available"}</dd>
               </div>
               <div>
                 <dt>Datastore</dt>
@@ -341,13 +341,13 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
               </ExternalLinkButton>
             </div>
             {cluster.nodes.map((node) => (
-              <article className="node" key={node.name}>
+              <article className="node" key={node.address}>
                 <div className="node-heading">
                   <span className="node-icon">
                     <Server size={18} />
                   </span>
                   <div>
-                    <h3>{node.name}</h3>
+                    <h3>{node.name?.trim() || "Not available"}</h3>
                     <p>{node.role}</p>
                   </div>
                   <Status
@@ -376,7 +376,7 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
       </div>
       <div className="overview-footer">
         <CheckItem>Small footprint. Full control.</CheckItem>
-        <span>Sample cluster · No live connection</span>
+        <span>Live cluster · Read only</span>
       </div>
     </>
   );

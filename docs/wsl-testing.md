@@ -219,13 +219,13 @@ make port-forward-stop
 
 The [access guide](operations.md#start-all-uis-for-local-testing) covers
 prerequisites, logs, and the Headlamp login token. Use
-`make port-forward DASHBOARD=0` to skip the mockup and its Node.js requirement.
+`make port-forward DASHBOARD=0` to skip the dashboard and its Node.js requirement.
 Without a checkout, use the manual port-forwards in separate terminals.
 
-In Windows, open `http://127.0.0.1:5173` for the AK3S mockup,
+In Windows, open `http://127.0.0.1:5173` for the AK3S dashboard,
 `http://127.0.0.1:8080` for Headlamp, `http://127.0.0.1:8428/vmui/` for metrics,
-and `http://127.0.0.1:9428/select/vmui/` for logs. The mockup still shows sample
-data; the other tools connect to the test cluster. These requests test
+and `http://127.0.0.1:9428/select/vmui/` for logs. Build the current CLI with `make build` before starting the dashboard.
+All four tools read the test cluster. These requests test
 Windows-to-WSL access in addition to the Linux checks. With
 `localhostForwarding=true`, no SSH tunnel is needed for this local setup.
 `localhost` also works if it resolves to IPv4. If localhost forwarding is

@@ -49,7 +49,7 @@ secrets-history:
 test-secrets:
 	bash scripts/check-secrets.test.sh
 
-# Start all four local UIs in the background; DASHBOARD=0 skips the mockup.
+# Start all four local UIs in the background; DASHBOARD=0 skips the dashboard.
 port-forward:
 ifeq ($(DASHBOARD),0)
 	bash scripts/port-forward.sh start --no-dashboard

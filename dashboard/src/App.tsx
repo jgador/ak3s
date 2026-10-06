@@ -2,8 +2,6 @@ import {
   BookOpen,
   ChevronRight,
   CircleArrowUp,
-  CircleCheck,
-  FlaskConical,
   Github,
   LayoutDashboard,
   Layers3,
@@ -15,9 +13,9 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { BrandMark, ExternalLinkButton, Status } from "./components";
 import { Configuration } from "./Configuration";
-import { demoSnapshot, docsUrl } from "./data";
+import { docsUrl } from "./data";
 import { Overview } from "./Overview";
-import type { Page } from "./types";
+import type { DashboardSnapshot, Page } from "./types";
 import { Upgrade } from "./Upgrade";
 
 const pages = [
@@ -52,9 +50,9 @@ export function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [refreshMessage, setRefreshMessage] = useState("");
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
+  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
+  const [error, setError] = useState("");
+  const request = useRef<AbortController | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -80,7 +78,14 @@ export function App() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [page, details.label]);
 
-  useEffect(() => () => clearTimeout(refreshTimer.current), []);
+  useEffect(() => {
+    void refresh();
+    const timer = setInterval(() => void refresh(), 30_000);
+    return () => {
+      clearInterval(timer);
+      request.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -97,19 +102,36 @@ export function App() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [menuOpen]);
 
-  function refresh() {
+  async function refresh() {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
     setRefreshing(true);
-    setRefreshMessage("Refreshing sample data.");
-    refreshTimer.current = setTimeout(() => {
-      setLastRefresh(
-        new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+    try {
+      const response = await fetch("/api/snapshot", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(
+          "Cannot read the local cluster. Check that K3s is running and the dashboard can read its kubeconfig.",
+        );
+      }
+      const data: DashboardSnapshot = await response.json();
+      if (controller.signal.aborted) return;
+      setSnapshot(data);
+      setLastRefresh(new Date(data.collectedAt).toLocaleTimeString());
+      setError("");
+      setRefreshMessage("Live cluster data updated.");
+    } catch (failure) {
+      if (controller.signal.aborted) return;
+      setError(
+        failure instanceof Error ? failure.message : "Cannot read the local cluster.",
       );
-      setRefreshing(false);
-      setRefreshMessage("Sample data refreshed. No live cluster is connected.");
-    }, 500);
+      setRefreshMessage("Cluster refresh failed.");
+    } finally {
+      if (!controller.signal.aborted) setRefreshing(false);
+    }
   }
 
   return (
@@ -142,9 +164,11 @@ export function App() {
           </span>
           <div>
             <span className="sidebar-cluster-name">
-              {demoSnapshot.cluster.name}
+              {snapshot?.cluster.name?.trim() || "Not available"}
             </span>
-            <span className="sidebar-cluster-caption">Demo cluster</span>
+            <span className="sidebar-cluster-caption">
+              {snapshot ? (error ? "Connection lost" : "Connected cluster") : "Not connected"}
+            </span>
           </div>
           <span className="sidebar-cluster-dot" />
         </div>
@@ -164,7 +188,7 @@ export function App() {
             >
               <item.icon size={18} strokeWidth={1.7} />
               <span>{item.label}</span>
-              {item.id === "upgrade" && (
+              {item.id === "upgrade" && snapshot?.upgrade.availableVersion && (
                 <span
                   className="nav-update-dot"
                   aria-label="Update available"
@@ -201,7 +225,9 @@ export function App() {
           <div className="sidebar-version">
             <span>
               AK3S{" "}
-              <span className="mono">{demoSnapshot.cluster.ak3sVersion}</span>
+              <span className="mono">
+                {snapshot?.cluster.ak3sVersion || "Not available"}
+              </span>
             </span>
             <span className="sidebar-version-dot" />
           </div>
@@ -223,16 +249,14 @@ export function App() {
             <Layers3 size={16} />
             <span>Clusters</span>
             <ChevronRight size={12} />
-            <a href="#/overview">{demoSnapshot.cluster.name}</a>
+            <a href="#/overview">
+              {snapshot?.cluster.name?.trim() || "Not available"}
+            </a>
             <ChevronRight size={12} />
             <span aria-current="page">{details.label}</span>
           </nav>
-          <span
-            className="demo-badge"
-            title="All cluster values are sample data. No live cluster is connected."
-          >
-            <FlaskConical size={13} />
-            Demo mode
+          <span className="demo-badge">
+            {snapshot ? (error ? "Stale data" : "Live cluster") : "Not connected"}
           </span>
         </header>
         <main id="main-content" className="main-content">
@@ -247,22 +271,21 @@ export function App() {
             <div className="page-heading-actions">
               {page === "overview" ? (
                 <>
-                  <div className="operational">
-                    <CircleCheck size={15} />
-                    <span>All systems operational</span>
-                  </div>
+                  <Status
+                    health={error ? "unknown" : snapshot?.cluster.health ?? "unknown"}
+                  />
                   <div className="refresh-control">
                     <span>
                       {lastRefresh
-                        ? `Sample refreshed at ${lastRefresh}`
-                        : "Sample snapshot"}
+                        ? `Updated at ${lastRefresh}`
+                        : "Waiting for cluster data"}
                     </span>
                     <button
                       className="icon-button"
                       onClick={refresh}
                       disabled={refreshing}
-                      aria-label="Refresh sample data"
-                      title="Refresh sample data"
+                      aria-label="Refresh cluster data"
+                      title="Refresh cluster data"
                     >
                       <RefreshCw
                         className={refreshing ? "spinning" : ""}
@@ -273,17 +296,26 @@ export function App() {
                 </>
               ) : (
                 <Status
-                  health={demoSnapshot.cluster.health}
-                  label="Cluster healthy"
+                  health={error ? "unknown" : snapshot?.cluster.health ?? "unknown"}
                 />
               )}
             </div>
           </div>
-          {page === "overview" && <Overview snapshot={demoSnapshot} />}
-          {page === "configuration" && (
-            <Configuration snapshot={demoSnapshot} />
+          {error && (
+            <div className="panel connection-error" role="alert">
+              {error}{snapshot && " Showing the last successful snapshot."}
+            </div>
           )}
-          {page === "upgrade" && <Upgrade snapshot={demoSnapshot} />}
+          {!snapshot && (
+            <div className="panel connection-error">
+              {refreshing ? "Reading the local K3s cluster…" : "No cluster data available."}
+            </div>
+          )}
+          {snapshot && page === "overview" && <Overview snapshot={snapshot} />}
+          {snapshot && page === "configuration" && (
+            <Configuration snapshot={snapshot} />
+          )}
+          {snapshot && page === "upgrade" && <Upgrade snapshot={snapshot} />}
           <div className="sr-only" role="status">
             {refreshMessage}
           </div>

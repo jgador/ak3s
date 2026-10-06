@@ -27,12 +27,12 @@ context. The dashboard runs as the user invoking the helper.
 
 | UI | Windows browser URL |
 | --- | --- |
-| AK3S dashboard mockup | `http://127.0.0.1:5173` |
+| AK3S dashboard | `http://127.0.0.1:5173` |
 | Headlamp | `http://127.0.0.1:8080` |
 | VictoriaMetrics | `http://127.0.0.1:8428/vmui/` |
 | VictoriaLogs | `http://127.0.0.1:9428/select/vmui/` |
 
-The AK3S dashboard is currently a local Vite server with sample data. The other
+The AK3S dashboard is a local Vite server that reads live cluster data through the current AK3S CLI. Run `make build` before starting it from a checkout. The other
 three listeners forward to Kubernetes Services. All four bind to `127.0.0.1`.
 With WSL2 NAT networking and `localhostForwarding=true`, open these addresses
 directly in Windows; no SSH tunnel is needed between Windows and its local WSL
@@ -49,7 +49,7 @@ Use the same checkout and Linux user for these commands. For only the three
 Kubernetes tools, run `make port-forward DASHBOARD=0`; Node.js and npm are then
 unnecessary. This leaves an already running dashboard alone. The direct Bash
 equivalents are `bash scripts/port-forward.sh start`, `status`, and `stop`;
-`start --no-dashboard` skips the mockup.
+`start --no-dashboard` skips the dashboard.
 
 Private logs and process records are stored under the ignored
 `.tmp/port-forward/` directory. To inspect a log without following it, use, for

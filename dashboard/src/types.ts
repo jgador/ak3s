@@ -3,7 +3,7 @@ export type Health = "healthy" | "degraded" | "unknown";
 export type ToolId = "headlamp" | "metrics" | "logs";
 
 export interface ClusterNode {
-  name: string;
+  name: string | null;
   role: string;
   address: string;
   operatingSystem: string;
@@ -30,10 +30,11 @@ export interface ClusterTool {
   health: Health;
 }
 
-/** Display data only; a future server must collect and redact cluster data. */
+/** Sanitized display data collected from the local cluster. */
 export interface DashboardSnapshot {
+  collectedAt: string;
   cluster: {
-    name: string;
+    name: string | null;
     apiEndpoint: string;
     k3sVersion: string;
     kubernetesVersion: string;
@@ -50,5 +51,5 @@ export interface DashboardSnapshot {
     effectiveYaml: string;
     overridesYaml: string;
   };
-  upgrade: { availableVersion: string };
+  upgrade: { availableVersion: string | null };
 }

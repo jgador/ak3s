@@ -2171,3 +2171,7 @@ td {
     scroll-behavior: auto !important;
   }
 }
+.connection-error {
+  padding: 18px;
+  margin-bottom: 20px;
+}

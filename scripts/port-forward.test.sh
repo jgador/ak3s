@@ -284,7 +284,7 @@ if command -v node >/dev/null && [[ -f "$repo_root/dashboard/node_modules/vite/b
   rm -rf -- "$fixture/dashboard/node_modules"
   ln -s "$repo_root/dashboard/node_modules" "$fixture/dashboard/node_modules"
   cp "$repo_root/dashboard/"{index.html,package.json,vite.config.ts} "$fixture/dashboard/"
-  cp -R "$repo_root/dashboard/src" "$repo_root/dashboard/public" "$fixture/dashboard/"
+  cp -R "$repo_root/dashboard/src" "$repo_root/dashboard/server" "$repo_root/dashboard/public" "$fixture/dashboard/"
   capture start
   expect_status 0
   html=$(curl --noproxy '*' -fsS --max-time 5 http://127.0.0.1:5173/)

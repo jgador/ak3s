@@ -16,6 +16,8 @@ headlamp_hostname: dashboard.example.com
 
 | Setting | Default / purpose |
 | --- | --- |
+| `cluster_name` | `ak3s` |
+| `node.name` | Empty uses the host's lowercase hostname during installation |
 | `acme_email` | Required for certificate issuers |
 | `api_endpoint` | `127.0.0.1`; use a reachable IPv4 or DNS name without a scheme or port |
 | `headlamp_hostname` | Empty keeps the dashboard private |
@@ -33,6 +35,8 @@ sudo ak3s apply --config ./values.yaml
 ```
 
 YAML mappings (key-value groups) merge; lists replace defaults. Omit keys to inherit defaults. Unknown keys, nulls, and YAML aliases are rejected. Overrides under `helm_values.<release>` take precedence over the corresponding AK3S settings; see [values.yaml](../examples/values.yaml).
+
+For a new cluster, leaving `node.name` unset is usually sufficient. If you set it explicitly, use a unique, stable name such as `k3s-server-01`. For an existing cluster, preserve its installed node name; AK3S refuses implicit identity changes.
 
 `ak3s render --output DIR` exports configuration and manifests that may contain secrets. Keep those files private.
 

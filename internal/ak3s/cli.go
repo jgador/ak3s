@@ -39,6 +39,7 @@ Commands:
   upgrade   Apply this AK3S release's pinned versions; allow a safe K3s upgrade
   uninstall Remove local K3s and its data using the generated upstream script
   status    Read this node's state and cluster resources
+  dashboard-snapshot Print sanitized live dashboard data as JSON (read only)
   config    Print merged configuration, or --defaults for embedded defaults
   render    Validate and render K3s, Helm values and Kubernetes resources
   version   Print AK3S and managed component versions
@@ -61,7 +62,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 	command := args[0]
 	switch command {
-	case "install", "apply", "upgrade", "status", "config", "render", "version", "uninstall":
+	case "install", "apply", "upgrade", "status", "config", "render", "version", "uninstall", "dashboard-snapshot":
 	default:
 		return fmt.Errorf("unknown command %q; run ak3s help", command)
 	}
@@ -90,6 +91,9 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 	if f.NArg() > 0 {
 		return errors.New("unexpected positional arguments")
+	}
+	if command == "dashboard-snapshot" {
+		return a.dashboardSnapshot(ctx, path)
 	}
 	pins, err := LoadPins()
 	if err != nil {

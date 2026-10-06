@@ -91,12 +91,12 @@ For [local secret scanning](docs/secret-scanning.md), use Bash, jq, and
 Gitleaks 8.30.1 or newer 8.x, then run `make secrets-setup` and
 `make secrets-scan`. The pre-commit hook checks staged content before each commit.
 
-The [TypeScript dashboard mockup](dashboard/README.md) provides a local preview of
+The [local TypeScript dashboard](dashboard/README.md) shows live
 cluster summaries, configuration, and upgrades, with links to the existing
 Kubernetes and observability tools. Run it with `cd dashboard`, `npm ci`, and
-`npm run dev`. It uses sample data and needs no cluster.
+`npm run dev`. Build the CLI with `make build` first and run the dashboard on the K3s server; it reads the local cluster and sanitized configuration.
 
-For a local AK3S test cluster, `make port-forward` starts the mockup and all three
+For a local AK3S test cluster, `make port-forward` starts the dashboard and all three
 tool port-forwards in the background, with localhost URLs you can open from
 Windows through WSL. Install the dashboard dependencies first. Use
 `make port-forward-status` to check them and `make port-forward-stop` when finished.
