@@ -156,7 +156,13 @@ k auth can-i delete pods -n demo --as=system:serviceaccount:headlamp:headlamp-vi
 k -n headlamp port-forward service/headlamp 8080:80
 ```
 
-Expect `yes` for reading pods and `no` for each Secret access or write check. The denied checks exit nonzero, so run them interactively rather than in a script that stops on the first denial. Open `http://127.0.0.1:8080`, sign in with the short-lived token, and confirm you can view workloads. Do not put the token in saved test notes.
+Expect `yes` for reading pods and `no` for each Secret access or write check. The denied checks exit nonzero, so run them interactively rather than in a script that stops on the first denial.
+
+If shared dashboard paths are enabled, including with the WSL guide's example
+configuration, open `http://127.0.0.1:8080/headlamp/` for this direct forward.
+You can also test `http://127.0.0.1:5173/headlamp` through the dashboard forward.
+Otherwise, open `http://127.0.0.1:8080`. Sign in with the short-lived token and
+confirm you can view workloads. Do not put the token in saved test notes.
 
 In WSL2, use the Windows browser's localhost forwarding. For a remote VPS, use an SSH tunnel from your workstation while keeping the port-forward running on the server: `ssh -N -L 8080:127.0.0.1:8080 USER@VPS_ADDRESS`. Replace the placeholders with your own account and address. Do not publish Headlamp or change the port-forward bind address for this check.
 
