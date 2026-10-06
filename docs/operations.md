@@ -32,6 +32,11 @@ context. Node.js and npm are only needed for frontend development.
 | VictoriaMetrics | `http://127.0.0.1:8428/vmui/` |
 | VictoriaLogs | `http://127.0.0.1:9428/select/vmui/` |
 
+These are the default URLs for separate port-forwards. With the WSL guide's
+`dashboard_shared_paths: true` configuration, use `/metrics`, `/logs`, and
+`/headlamp` at `http://127.0.0.1:5173`. A direct Headlamp forward uses
+`http://127.0.0.1:8080/headlamp/` while shared paths are enabled.
+
 All four listeners forward to Kubernetes Services and bind to `127.0.0.1`.
 The AK3S dashboard runs in namespace `ak3s` with a read-only service account.
 It serves the built frontend and live cluster data from one container.
@@ -92,7 +97,11 @@ sudo k3s kubectl -n headlamp create token headlamp-viewer --duration=1h
 sudo k3s kubectl -n headlamp port-forward service/headlamp 8080:80
 ```
 
-Open `http://127.0.0.1:8080` and enter the token. When connecting to a separate remote host, use an SSH tunnel in addition to the port-forwards on that host. Local Windows-to-WSL access uses localhost forwarding as described above. Keep tokens private. Set `headlamp_hostname` for optional HTTPS ingress; Kubernetes authentication still applies.
+With shared dashboard paths enabled, use `http://127.0.0.1:8080/headlamp/` for
+this direct forward, or open `/headlamp` through the dashboard's address.
+Otherwise, open `http://127.0.0.1:8080`. Enter the token to sign in.
+
+When connecting to a separate remote host, use an SSH tunnel in addition to the port-forwards on that host. Local Windows-to-WSL access uses localhost forwarding as described above. Keep tokens private. Set `headlamp_hostname` for optional standalone HTTPS ingress; Kubernetes authentication still applies.
 
 For metrics and logs, run the corresponding port-forward command:
 
@@ -124,9 +133,13 @@ and remove stale AAAA records. Ports 80 and 443 must reach NGINX; port 80 is als
 needed for certificate issuance. If DNS is proxied through another service,
 ensure requests reach this ingress and use HTTPS to the origin.
 
-After installing AK3S with its default private access, create the login Secret
-on the server. From the repository root, these Bash commands prompt for credentials
-without placing the password in shell history or command arguments:
+#### Create the login Secret
+
+Once K3s is running, create the login Secret before enabling the public dashboard.
+This also works after installing K3s with `platform: false`. Run these Bash
+commands in a working directory on the server. They use `.tmp/` for temporary
+files and prompt for credentials without placing the password in shell history
+or command arguments:
 
 ```bash
 sudo k3s kubectl create namespace ak3s --dry-run=client -o yaml | sudo k3s kubectl apply -f -
@@ -148,6 +161,8 @@ sudo k3s kubectl create namespace ak3s --dry-run=client -o yaml | sudo k3s kubec
 )
 ```
 
+#### Enable HTTPS access
+
 Add these overrides to your existing `/etc/ak3s/values.yaml`, preserving its
 contact email and node settings:
 
@@ -155,6 +170,7 @@ contact email and node settings:
 dashboard_hostname: ak3s.example.com
 dashboard_auth_secret: dashboard-auth
 acme_environment: staging
+platform: true
 ```
 
 Leave `headlamp_hostname` unset. Build and deploy the matching
