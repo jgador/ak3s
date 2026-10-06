@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -27,7 +28,7 @@ func TestPinnedK3sArtifacts(t *testing.T) {
 // needs outbound HTTPS but no root, Docker, systemd, or cluster.
 func TestPinnedCharts(t *testing.T) {
 	c := testConfig(t)
-	c.HeadlampHostname = "dashboard.example.com"
+	c.DashboardHostname = "ak3s.example.com"
 	p := Plan{Config: c, Pins: testPins(t), Snapshot: Snapshot{OS: "linux", Arch: runtime.GOARCH}}
 	b, err := (NativePreparer{Downloads: HTTPDownloader{}, Runner: ExecRunner{}}).Prepare(context.Background(), p)
 	if err != nil {
@@ -49,6 +50,12 @@ func TestPinnedCharts(t *testing.T) {
 		}
 		if err = ValidateManifests(data); err != nil {
 			t.Fatal(err)
+		}
+		if chart.Release == "headlamp" && (!strings.Contains(string(data), "-base-url=/headlamp") || !strings.Contains(string(data), "/headlamp/")) {
+			t.Fatal("pinned Headlamp chart did not render the base URL and health probes")
+		}
+		if chart.Release == "nginx-ingress" && (!strings.Contains(string(data), "app.kubernetes.io/instance: nginx-ingress") || !strings.Contains(string(data), "app.kubernetes.io/name: nginx-ingress")) {
+			t.Fatal("pinned controller labels do not match dashboard NetworkPolicy")
 		}
 	}
 }

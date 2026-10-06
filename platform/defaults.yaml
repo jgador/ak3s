@@ -1,5 +1,5 @@
 cluster_name: ak3s
-api_endpoint: 127.0.0.1
+kubernetes_api_endpoint: 127.0.0.1
 tls_sans: []
 
 # Required when platform is enabled. There is no safe default contact address.
@@ -13,6 +13,13 @@ logs_storage: 10Gi
 logs_max_disk: 8GiB
 # Empty selects the dashboard image supplied by this AK3S release.
 dashboard_image: ""
+# Empty disables shared HTTPS access.
+dashboard_hostname: ""
+# Enable the same tool paths through a local dashboard port-forward.
+# A nonempty dashboard_hostname enables these paths automatically.
+dashboard_shared_paths: false
+# Required in namespace ak3s when dashboard_hostname is set.
+dashboard_auth_secret: dashboard-auth
 headlamp_hostname: ""
 platform: true
 node:

@@ -35,33 +35,51 @@ Without a checkout, forward the dashboard Service directly:
 sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n ak3s port-forward --address 127.0.0.1 service/dashboard 5173:80
 ```
 
-The server accepts local, same-origin requests. Kubernetes port-forward access
-provides the access boundary; there is no separate dashboard login. A
-NetworkPolicy blocks pod-network ingress. Keep the Service private. For a remote
-host, also use an SSH tunnel from your workstation.
+By default, the server accepts local, same-origin requests. Kubernetes
+port-forward permission provides access, and a NetworkPolicy blocks pod-network
+ingress. For a remote host, also use an SSH tunnel from your workstation.
+
+For shared HTTPS access, set `dashboard_hostname` and create the login Secret
+as described in [shared hostname access](../docs/operations.md#shared-hostname).
+The dashboard serves `/`, proxies VictoriaMetrics under `/metrics`, VictoriaLogs
+under `/logs`, and Headlamp under `/headlamp`. Dashboard, metrics, and logs share
+a username and password; Headlamp retains its Kubernetes login. The ingress
+uses cert-manager TLS, and the NetworkPolicy admits the NGINX controller.
+
+For the same paths through a local port-forward, set `dashboard_shared_paths: true`
+and leave `dashboard_hostname` empty. Forward only the dashboard Service and open
+`http://localhost:5173/metrics`, `/logs`, or `/headlamp`. This mode keeps the
+NetworkPolicy closed and requires no dashboard login Secret or HTTPS certificate.
+See [WSL shared-path testing](../docs/wsl-testing.md#test-shared-ui-paths).
 
 ## Build and deploy local source
 
-Use Docker to build the frontend and Go server together. From the repository
-root on the local K3s server:
+For a single local test server, save your operator configuration with
+`platform: true`, then run this from the repository root:
 
 ```bash
-make dashboard-image
-# Transfer the local image into K3s's separate container runtime.
-docker save ghcr.io/jgador/ak3s-dashboard:dev -o .tmp/dashboard-image.tar
-sudo k3s ctr images import .tmp/dashboard-image.tar
-rm .tmp/dashboard-image.tar
-make build
-sudo bin/ak3s apply --dry-run
-sudo bin/ak3s apply
+make install-local
 ```
 
-These commands use the `dev` image for a default source build. Import the image
-on every node where the dashboard may run, or push it to a registry the cluster
-can reach. For a custom image, set `dashboard_image` in your operator values to
-an explicit tag or SHA-256 digest. Use a new tag for each build; if reusing the
-local `dev` tag, import it again and run
-`sudo k3s kubectl -n ak3s rollout restart deployment/dashboard` after applying.
+This requires Go, Make, and access to Docker. The helper builds the CLI and
+dashboard for the local CPU architecture, starts K3s, streams the image into
+K3s, and applies the platform. It preserves your operator file, waits for the
+dashboard, and installs the CLI. Run the same command after source changes; it
+restarts an existing dashboard to pick up the rebuilt image. See the
+[WSL guide](../docs/wsl-testing.md#configure-and-install-the-cluster-both-paths)
+for a complete configuration.
+
+The default source build uses `ghcr.io/jgador/ak3s-dashboard:dev`. For a custom
+local image, set `dashboard_image` to a tagged reference; the helper builds that
+tag. A SHA-256 digest identifies an existing registry image and cannot be used
+as a build tag. Set `AK3S_CONFIG=/path/to/values.yaml` on the Make command to use
+an operator file outside `/etc/ak3s/values.yaml`.
+
+For a cluster with additional nodes, distribute the image to every node where
+the dashboard may run or push it to a registry the cluster can reach. You can
+build an image separately with `make dashboard-image DASHBOARD_IMAGE=REGISTRY/IMAGE:TAG`.
+Set `dashboard_image` in the cluster's operator values to that image's tag or
+SHA-256 digest, then run `sudo ak3s apply`. Use a new tag for each registry build.
 
 Published release builds select an image by immutable digest. An empty
 `dashboard_image` uses that release default. The release workflow publishes
@@ -125,13 +143,19 @@ collections for five seconds, and suppresses private errors. The readiness
 probe checks live data collection; the liveness probe checks the HTTP server.
 The static frontend alone does not provide live data.
 
-The tool cards use separate loopback forwards:
+By default, the tool cards use separate loopback forwards:
 
 | Tool | URL |
 | --- | --- |
 | Headlamp | `http://127.0.0.1:8080` |
 | VictoriaMetrics | `http://127.0.0.1:8428/vmui/` |
 | VictoriaLogs | `http://127.0.0.1:9428/select/vmui/` |
+
+With shared paths enabled, the deployed dashboard cards link to `/headlamp`,
+`/metrics`, and `/logs` on the current browser address. The connection guide
+displays those links and Headlamp token instructions. The Vite development
+server still uses separate tool connections; its direct Headlamp link includes
+`/headlamp/` when that base URL is enabled.
 
 Headlamp also requires a Kubernetes login token. Keep workload management in
 Headlamp, metrics in VictoriaMetrics, and log search in VictoriaLogs.

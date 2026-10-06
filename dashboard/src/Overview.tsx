@@ -41,6 +41,8 @@ const componentIcons: Record<InstalledComponent["icon"], typeof Box> = {
 
 export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
   const { cluster, components, tools } = snapshot;
+  const publicAccess = snapshot.access === "https";
+  const sharedAccess = snapshot.access === "shared" || publicAccess;
   const [guideOpen, setGuideOpen] = useState(false);
   const [guideTool, setGuideTool] = useState<ToolId>("headlamp");
   const readyNodes = cluster.nodes.filter(
@@ -148,8 +150,9 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
                 </div>
                 <span className="sr-only">
                   {" "}
-                  (opens in a new tab; requires a local port-forward or SSH
-                  tunnel)
+                  {sharedAccess
+                    ? "(opens in a new tab)"
+                    : "(opens in a new tab; requires a local port-forward or SSH tunnel)"}
                 </span>
               </a>
             );
@@ -158,8 +161,11 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
         <div className="connection-note">
           <span>
             <LockKeyhole size={13} />
-            Private by default. Connect through a local port-forward or SSH
-            tunnel.
+            {publicAccess
+              ? "HTTPS access. Dashboard, metrics, and logs share a password; Headlamp uses a Kubernetes token."
+              : sharedAccess
+                ? "All tools use this dashboard's address. Headlamp requires a Kubernetes token."
+                : "Private by default. Connect through a local port-forward or SSH tunnel."}
           </span>
           <button
             aria-expanded={guideOpen}
@@ -174,7 +180,11 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
           <div className="connection-guide panel" id="connection-guide">
             <SectionHeading
               title="Connect to your tools"
-              description="Run the command on the cluster host. For a remote server, also tunnel the matching local port over SSH."
+              description={
+                sharedAccess
+                  ? "Open a tool using the links below. Headlamp requires a Kubernetes token."
+                  : "Run the command on the cluster host. For a remote server, also tunnel the matching local port over SSH."
+              }
             />
             <div className="guide-controls">
               <div className="segmented-control" aria-label="Connection tool">
@@ -188,14 +198,16 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
                   </button>
                 ))}
               </div>
-              <CopyButton
-                text={selectedTool.portForward}
-                label="Copy command"
-              />
+              {!sharedAccess && (
+                <CopyButton
+                  text={selectedTool.portForward}
+                  label="Copy command"
+                />
+              )}
             </div>
-            <CodeBlock code={selectedTool.portForward} />
+            {!sharedAccess && <CodeBlock code={selectedTool.portForward} />}
             <p className="guide-help">
-              Then open{" "}
+              {sharedAccess ? "Open " : "Then open "}
               <ExternalLinkButton href={selectedTool.url}>
                 {selectedTool.url}
               </ExternalLinkButton>
@@ -317,12 +329,12 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
               </div>
             </dl>
             <div className="endpoint-block">
-              <span>API endpoint</span>
+              <span>Kubernetes API endpoint</span>
               <div>
-                <code>{cluster.apiEndpoint}</code>
+                <code>{cluster.kubernetesApiEndpoint}</code>
                 <CopyButton
-                  text={cluster.apiEndpoint}
-                  label="Copy API endpoint"
+                  text={cluster.kubernetesApiEndpoint}
+                  label="Copy Kubernetes API endpoint"
                   compact
                 />
               </div>

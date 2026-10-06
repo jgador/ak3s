@@ -17,25 +17,28 @@ import (
 // Config holds operator settings after overrides have been merged with defaults.
 // YAML tags define the names accepted in values.yaml.
 type Config struct {
-	ClusterName      string                    `yaml:"cluster_name"`
-	APIEndpoint      string                    `yaml:"api_endpoint"`
-	TLSSANs          []string                  `yaml:"tls_sans"`
-	ACMEEmail        string                    `yaml:"acme_email"`
-	ACMEEnvironment  string                    `yaml:"acme_environment"`
-	StorageClass     string                    `yaml:"storage_class"`
-	MetricsRetention string                    `yaml:"metrics_retention"`
-	MetricsStorage   string                    `yaml:"metrics_storage"`
-	LogsRetention    string                    `yaml:"logs_retention"`
-	LogsStorage      string                    `yaml:"logs_storage"`
-	LogsMaxDisk      string                    `yaml:"logs_max_disk"`
-	DashboardImage   string                    `yaml:"dashboard_image"`
-	HeadlampHostname string                    `yaml:"headlamp_hostname"`
-	Platform         bool                      `yaml:"platform"`
-	Node             NodeConfig                `yaml:"node"`
-	HelmValues       map[string]map[string]any `yaml:"helm_values"`
-	sourcePath       string
-	displayOverrides string
-	overrideCount    int
+	ClusterName           string                    `yaml:"cluster_name"`
+	KubernetesAPIEndpoint string                    `yaml:"kubernetes_api_endpoint"`
+	TLSSANs               []string                  `yaml:"tls_sans"`
+	ACMEEmail             string                    `yaml:"acme_email"`
+	ACMEEnvironment       string                    `yaml:"acme_environment"`
+	StorageClass          string                    `yaml:"storage_class"`
+	MetricsRetention      string                    `yaml:"metrics_retention"`
+	MetricsStorage        string                    `yaml:"metrics_storage"`
+	LogsRetention         string                    `yaml:"logs_retention"`
+	LogsStorage           string                    `yaml:"logs_storage"`
+	LogsMaxDisk           string                    `yaml:"logs_max_disk"`
+	DashboardImage        string                    `yaml:"dashboard_image"`
+	DashboardHostname     string                    `yaml:"dashboard_hostname"`
+	DashboardSharedPaths  bool                      `yaml:"dashboard_shared_paths"`
+	DashboardAuthSecret   string                    `yaml:"dashboard_auth_secret"`
+	HeadlampHostname      string                    `yaml:"headlamp_hostname"`
+	Platform              bool                      `yaml:"platform"`
+	Node                  NodeConfig                `yaml:"node"`
+	HelmValues            map[string]map[string]any `yaml:"helm_values"`
+	sourcePath            string
+	displayOverrides      string
+	overrideCount         int
 }
 
 // NodeConfig describes this node's identity, networking, and cluster membership.
@@ -186,14 +189,18 @@ func endpoint(s string) bool {
 	return hostname(s) && !regexp.MustCompile(`^[0-9.]+$`).MatchString(s)
 }
 
+func (c Config) sharedDashboardPaths() bool {
+	return c.DashboardSharedPaths || c.DashboardHostname != ""
+}
+
 // Validate checks setting formats, supported cluster topology, and chart override names.
 // Host prerequisites and installation-only requirements are checked separately.
 func (c Config) Validate() error {
 	if !labelRE.MatchString(c.ClusterName) {
 		return errors.New("cluster_name must be a DNS label")
 	}
-	if !endpoint(c.APIEndpoint) {
-		return errors.New("api_endpoint must be an IPv4 address or DNS hostname without a port")
+	if !endpoint(c.KubernetesAPIEndpoint) {
+		return errors.New("kubernetes_api_endpoint must be an IPv4 address or DNS hostname without a port")
 	}
 	for _, s := range c.TLSSANs {
 		if !endpoint(s) {
@@ -225,6 +232,17 @@ func (c Config) Validate() error {
 	if c.HeadlampHostname != "" && !hostname(c.HeadlampHostname) {
 		return errors.New("headlamp_hostname must be a DNS hostname")
 	}
+	if c.sharedDashboardPaths() && c.HeadlampHostname != "" {
+		return errors.New("use dashboard shared paths or headlamp_hostname for standalone Headlamp access")
+	}
+	if c.DashboardHostname != "" {
+		if !hostname(c.DashboardHostname) || net.ParseIP(c.DashboardHostname) != nil {
+			return errors.New("dashboard_hostname must be a DNS hostname without a scheme, port, or path")
+		}
+		if !hostname(c.DashboardAuthSecret) {
+			return errors.New("dashboard_auth_secret must name a Kubernetes Secret containing username and password")
+		}
+	}
 	if c.DashboardImage != "" && !dashboardImageRE.MatchString(c.DashboardImage) {
 		return errors.New("dashboard_image must be a container image with an explicit tag or SHA-256 digest")
 	}
@@ -255,8 +273,8 @@ func (c Config) Validate() error {
 	if n.Role == "server" && n.Join && n.Datastore != "etcd" {
 		return errors.New("joining servers require etcd")
 	}
-	if n.Join && (n.TokenFile == "" || c.APIEndpoint == "127.0.0.1" || c.APIEndpoint == "localhost") {
-		return errors.New("joining requires node.token_file and a reachable api_endpoint")
+	if n.Join && (n.TokenFile == "" || c.KubernetesAPIEndpoint == "127.0.0.1" || c.KubernetesAPIEndpoint == "localhost") {
+		return errors.New("joining requires node.token_file and a reachable kubernetes_api_endpoint")
 	}
 	if n.TokenFile != "" && (!filepath.IsAbs(n.TokenFile) || strings.ContainsAny(n.TokenFile, "\n\r\x00")) {
 		return errors.New("node.token_file must be an absolute path")

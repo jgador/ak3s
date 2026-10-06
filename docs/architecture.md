@@ -12,10 +12,18 @@ ServiceLB does not allocate public IPs, configure DNS, or provision a cloud load
 
 The AK3S dashboard, Headlamp, VictoriaMetrics, and VictoriaLogs use private ClusterIP services.
 The dashboard runs as a non-root Deployment in namespace `ak3s`, reads nodes and
-workload status through a restricted service account, and mounts only sanitized
+workload status through a restricted service account, and mounts sanitized
 AK3S configuration. Reconciliation updates this configuration and waits for the
-dashboard rollout. A NetworkPolicy blocks pod-network ingress. Reach these
-services through [authenticated Kubernetes port-forwarding](operations.md#access).
+dashboard rollout. By default, a NetworkPolicy blocks pod-network ingress.
+Reach these services through [authenticated Kubernetes port-forwarding](operations.md#access).
+Optional [shared HTTPS access](operations.md#shared-hostname) allows the bundled
+NGINX controller through that policy. NGINX terminates TLS, and the dashboard
+proxies `/metrics`, `/logs`, and `/headlamp` to fixed internal Services. A mounted
+Secret supplies the dashboard, metrics, and logs login; Headlamp keeps its
+Kubernetes authentication. Internal metrics and log collection URLs are unchanged.
+`dashboard_shared_paths` also enables those paths through a local dashboard
+port-forward without creating an ingress or relaxing the NetworkPolicy. The
+deployed dashboard uses relative tool links for both local and HTTPS access.
 Logs contain container standard output and standard error (stdout/stderr).
 Metrics-server supplies resource metrics; VictoriaMetrics stores longer-term metrics.
 

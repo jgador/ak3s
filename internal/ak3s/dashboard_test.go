@@ -53,6 +53,9 @@ func TestDashboardLiveProjectionAndRedaction(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(out.String(), `"kubernetesApiEndpoint":"https://127.0.0.1:6443"`) {
+		t.Fatal("dashboard response omitted the Kubernetes API endpoint")
+	}
 	if *calls != 3 || d.Cluster.Name != "ak3s" || len(d.Cluster.Nodes) != 1 || d.Cluster.Nodes[0].Name != "lab-node" || d.Cluster.K3sVersion != "v1.37.1+k3s1" || d.Configuration.OverrideCount != 3 {
 		t.Fatal("live data not projected", d)
 	}

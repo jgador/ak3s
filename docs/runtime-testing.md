@@ -123,6 +123,28 @@ returns `403`. Keep snapshots private. Repeat after `ak3s apply` and pod
 replacement to check configuration updates and recovery. Source builds require
 [importing the local dashboard image](../dashboard/README.md#build-and-deploy-local-source).
 
+For optional shared HTTPS access, follow [the setup guide](operations.md#shared-hostname)
+on a disposable VPS with a real DNS hostname. After production certificate issuance:
+
+- Confirm HTTP redirects to HTTPS and the HTTPS certificate is trusted without `-k`.
+- Verify `/`, `/api/snapshot`, `/metrics/vmui/`, and `/logs/select/vmui/` return
+  `401` without credentials and with an incorrect password. Use `curl --user USER`
+  to prompt for a password without storing it in command history.
+- Sign in through a browser. Verify live dashboard data, metrics queries, and log
+  searches. Follow `/metrics` and `/logs` redirects and confirm their JavaScript,
+  styles, and API requests remain under the correct prefixes.
+- Open `/headlamp`, sign in with a temporary viewer token, and browse resources.
+  Verify pod log streaming or a resource watch works through the proxy. Confirm
+  the viewer still cannot read Secrets or change workloads.
+- Rotate the login Secret and confirm the old password stops working after the
+  mounted Secret updates. Check hostile Origin requests still return `403`.
+- Repeat after `ak3s apply` and pod replacement. Then remove `dashboard_hostname`
+  and apply again: the managed ingress must disappear, ordinary pods must be
+  unable to reach the dashboard, and local port-forwards must still work.
+
+Unit tests and Helm rendering do not validate public DNS, certificate issuance,
+browser integration, or the cluster's NetworkPolicy enforcement.
+
 Then check Headlamp:
 
 ```bash
@@ -134,7 +156,13 @@ k auth can-i delete pods -n demo --as=system:serviceaccount:headlamp:headlamp-vi
 k -n headlamp port-forward service/headlamp 8080:80
 ```
 
-Expect `yes` for reading pods and `no` for each Secret access or write check. The denied checks exit nonzero, so run them interactively rather than in a script that stops on the first denial. Open `http://127.0.0.1:8080`, sign in with the short-lived token, and confirm you can view workloads. Do not put the token in saved test notes.
+Expect `yes` for reading pods and `no` for each Secret access or write check. The denied checks exit nonzero, so run them interactively rather than in a script that stops on the first denial.
+
+If shared dashboard paths are enabled, including with the WSL guide's example
+configuration, open `http://127.0.0.1:8080/headlamp/` for this direct forward.
+You can also test `http://127.0.0.1:5173/headlamp` through the dashboard forward.
+Otherwise, open `http://127.0.0.1:8080`. Sign in with the short-lived token and
+confirm you can view workloads. Do not put the token in saved test notes.
 
 In WSL2, use the Windows browser's localhost forwarding. For a remote VPS, use an SSH tunnel from your workstation while keeping the port-forward running on the server: `ssh -N -L 8080:127.0.0.1:8080 USER@VPS_ADDRESS`. Replace the placeholders with your own account and address. Do not publish Headlamp or change the port-forward bind address for this check.
 

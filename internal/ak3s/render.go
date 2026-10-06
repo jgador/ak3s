@@ -26,7 +26,7 @@ func K3sConfig(c Config, legacyToken string) ([]byte, error) {
 		v["disable"] = []string{"traefik"}
 		v["write-kubeconfig-mode"] = "0600"
 		v["secrets-encryption"] = true
-		sans := []string{c.APIEndpoint}
+		sans := []string{c.KubernetesAPIEndpoint}
 		for _, s := range c.TLSSANs {
 			found := false
 			for _, x := range sans {
@@ -46,7 +46,7 @@ func K3sConfig(c Config, legacyToken string) ([]byte, error) {
 		}
 	}
 	if n.Join {
-		v["server"] = "https://" + c.APIEndpoint + ":6443"
+		v["server"] = "https://" + c.KubernetesAPIEndpoint + ":6443"
 	}
 	return yaml.Marshal(v)
 }
@@ -76,6 +76,9 @@ func ValuesFor(chart Chart, c Config) ([]byte, error) {
 		}
 		generated["server"] = server
 	case "headlamp":
+		if c.sharedDashboardPaths() {
+			generated["config"] = map[string]any{"baseURL": "/headlamp"}
+		}
 		if c.HeadlampHostname != "" {
 			host := c.HeadlampHostname
 			generated["ingress"] = map[string]any{"enabled": true, "ingressClassName": "nginx", "annotations": map[string]any{"cert-manager.io/cluster-issuer": "letsencrypt-" + c.ACMEEnvironment, "nginx.org/ssl-redirect": "true"}, "hosts": []any{map[string]any{"host": host, "paths": []any{map[string]any{"path": "/", "type": "Prefix"}}}}, "tls": []any{map[string]any{"secretName": "headlamp-tls", "hosts": []string{host}}}}

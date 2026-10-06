@@ -45,7 +45,7 @@ Create `/etc/ak3s/values.yaml`:
 
 ```yaml
 acme_email: you@example.com
-api_endpoint: 203.0.113.10 # replace with your VPS's IPv4 or API DNS name
+kubernetes_api_endpoint: 203.0.113.10 # replace with your VPS's IPv4 or API DNS name
 ```
 
 ```bash
@@ -98,6 +98,10 @@ Gitleaks 8.30.1 or newer 8.x, then run `make secrets-setup` and
 The [AK3S dashboard](dashboard/README.md) is deployed with the platform in
 namespace `ak3s`. It shows live cluster summaries, sanitized configuration, and
 upgrade guidance, with links to Headlamp and the observability tools.
+Set `dashboard_hostname` for [shared HTTPS access](docs/operations.md#shared-hostname)
+at `/`, `/metrics`, `/logs`, and `/headlamp`.
+For the same paths through local port-forwarding, set `dashboard_shared_paths: true`;
+see [WSL shared-path testing](docs/wsl-testing.md#test-shared-ui-paths).
 
 For a local AK3S test cluster, `make port-forward` forwards the dashboard and all
 three tool Services in the background. Open `http://127.0.0.1:5173` for the

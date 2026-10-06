@@ -136,7 +136,7 @@ cd ak3s
 # Switch to the intended branch or commit before building.
 ```
 
-Install **Go 1.25+** inside the lab using the [Go installation instructions](https://go.dev/doc/install); check it with `go version`. Ubuntu's default Go package may be older than the required version.
+Install **Go 1.25+** inside the lab using the [Go installation instructions](https://go.dev/doc/install); check it with `go version`. Ubuntu's default Go package may be older than the required version. Install [Docker Engine for Ubuntu](https://docs.docker.com/engine/install/ubuntu/) inside the lab as well. Docker must be running and accessible to the user running Make. The local installer builds the dashboard image for you.
 
 From the checkout's root directory, run:
 
@@ -147,69 +147,86 @@ git status --short
 go mod download
 make verify
 go test -tags integration -run TestPinnedCharts -v ./internal/ak3s
-make build
-sudo install -m 0755 bin/ak3s /usr/local/bin/ak3s
-ak3s version
 export AK3S_LOCAL_APP_FILE="$PWD/examples/local-app.yaml"
 ```
 
-Stop if a check fails. `make verify` runs tests with race detection, `go vet`, formatting checks, and installer syntax checks. The integration check verifies pinned downloads and Helm rendering over outbound HTTPS. Neither command installs a cluster. Installing `bin/ak3s` places the CLI on the lab's path; the cluster installation comes below.
+Stop if a check fails. `make verify` runs tests with race detection, `go vet`, formatting checks, installer syntax checks, and local installer helper tests. The integration check verifies pinned downloads and Helm rendering over outbound HTTPS. Neither command installs a cluster.
 
-The default build reports version `dev` and a commit identifier. Record the full commit, whether the checkout has uncommitted changes, and the test results. The embedded commit identifier does not identify uncommitted changes; preserve the tested changes before publishing. Rebuild and repeat affected checks after source changes. Use the demo from this checkout when following the runtime checklist; define `AK3S_LOCAL_APP_FILE` again from the checkout root in any new testing terminal.
+The local build reports version `dev` and a commit identifier. Record the full commit, whether the checkout has uncommitted changes, and the test results. The embedded commit identifier does not identify uncommitted changes; preserve the tested changes before publishing. Repeat affected checks after source changes. Use the demo from this checkout when following the runtime checklist; define `AK3S_LOCAL_APP_FILE` again from the checkout root in any new testing terminal.
 
 This path tests the local CLI and cluster behavior. For release artifact and checksum generation, also follow [development checks](testing.md). It does not exercise the published release download and checksum verification; repeat path A after publishing to validate the release installer.
 
-For the local-source path, also build the dashboard image with Docker in the
-lab or on another Linux amd64/arm64 machine:
-
-```bash
-make dashboard-image
-docker save ghcr.io/jgador/ak3s-dashboard:dev -o .tmp/dashboard-image.tar
-```
-
-If built elsewhere, transfer that archive privately to the lab. On a fresh lab,
-K3s must start before the archive can be imported. Add `platform: false` to the
-configuration below for the first local-source install. This installs K3s
-without shared add-ons. After completing that first install using the commands
-below, return to the checkout and import the image:
-
-```bash
-sudo k3s ctr images import .tmp/dashboard-image.tar
-rm .tmp/dashboard-image.tar
-```
-
-Remove `platform: false` from the operator configuration and rerun
-`sudo ak3s apply --dry-run` followed by `sudo ak3s apply` to install the full
-platform. Published releases pull their dashboard image automatically and do
-not need this bootstrap step. On an existing local test cluster, import the
-image before applying. See the [dashboard build guide](../dashboard/README.md#build-and-deploy-local-source)
-for image updates and custom registries.
+Continue below to write the WSL configuration once, then run
+`make install-local`. That command builds the CLI and dashboard, transfers the
+image into K3s, and installs the platform. Use it again for source updates or
+[dashboard image recovery](#dashboard-image-recovery).
 
 ### Configure and install the cluster (both paths)
 
-Create the test configuration:
+Copy the complete configuration for your environment into
+`/etc/ak3s/values.yaml`. Replace the example contact email. For an existing
+cluster, merge the settings while preserving its node identity and other overrides.
 
 ```bash
 sudo install -d -m 0755 /etc/ak3s
 sudo nano /etc/ak3s/values.yaml
 ```
 
+**WSL — use the same configuration for a published release or local source.**
+Keep `platform: true`. This enables all four UIs at `http://localhost:5173`
+through one dashboard port-forward.
+
 ```yaml
 acme_email: you@example.com # replace with your own valid contact address
-api_endpoint: localhost
+acme_environment: staging
+kubernetes_api_endpoint: localhost
+dashboard_shared_paths: true
+dashboard_hostname: ""
+headlamp_hostname: ""
+platform: true
 node:
   name: localhost
 ```
 
-This example is for a **new cluster**. `node.name` is the Kubernetes node's identity, independent of the WSL hostname and browser address. Using `localhost` as the node name does not rename the distribution or change network routing. If omitted for a new cluster, AK3S uses the existing hostname in lowercase.
+This WSL example is for a **new cluster**. `node.name` is the Kubernetes node's identity, independent of the WSL hostname and browser address. Using `localhost` as the node name does not rename the distribution or change network routing. If omitted for a new cluster, AK3S uses the existing hostname in lowercase.
 
 For an already installed cluster, preserve its original `node.name` when rerunning AK3S. For example, if `sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get nodes` reports `ak3s-lab`, keep `node.name: ak3s-lab` in that cluster's configuration. It can still be accessed through `localhost`. Changing the node name requires an explicit migration; use a fresh disposable cluster to test a different name.
 
-The full platform requires a contact email and creates Let's Encrypt ClusterIssuers. Those issuers may register accounts over outbound HTTPS using ACME (Automated Certificate Management Environment), the protocol for automated certificate issuance. The local demo uses a separate self-signed issuer. No public domain is required. Leave `headlamp_hostname` unset to keep the dashboard private.
+The full platform requires a contact email and creates Let's Encrypt ClusterIssuers. Those issuers may register accounts over outbound HTTPS using ACME (Automatic Certificate Management Environment), the protocol for automated certificate issuance. The local demo uses a separate self-signed issuer. No public domain is required. Empty `dashboard_hostname` and `headlamp_hostname` settings keep the UIs accessible through local port-forwarding.
 
-Keep `api_endpoint` on loopback (`localhost` or `127.0.0.1`) for this single-node test environment: WSL's NAT IP can change after restart. This setting adds an address to the API certificate; it does not restrict which addresses K3s listens on. K3s and ingress still listen on the node. For the real VPS, use a reachable VPS IP or API DNS name and apply the [VPS firewall requirements](vps.md#firewall-requirements).
+Keep `kubernetes_api_endpoint` on loopback (`localhost` or `127.0.0.1`) for this single-node test environment: WSL's NAT IP can change after restart. This setting adds an address to the API certificate; it does not restrict which addresses K3s listens on. K3s and ingress still listen on the node. For the real VPS, use a reachable VPS IP or API DNS name and apply the [VPS firewall requirements](vps.md#firewall-requirements).
 
-Preview, review, then install:
+**VPS — first install with a published release:** use this configuration on the
+VPS. Replace the contact email, Kubernetes API address, and dashboard hostname.
+Use the [VPS installation steps](vps.md#configure-and-install) to start K3s,
+create the login Secret, enable the platform, and validate TLS.
+
+```yaml
+acme_email: you@example.com
+acme_environment: staging
+kubernetes_api_endpoint: 203.0.113.10
+dashboard_shared_paths: true
+dashboard_hostname: ak3s.example.com
+dashboard_auth_secret: dashboard-auth
+headlamp_hostname: ""
+platform: false
+node:
+  name: k3s-server-01
+```
+
+Here `platform: false` allows K3s to start before you create the login Secret
+required by the public dashboard. After creating it, set `platform: true` and
+apply. After staging certificate issuance succeeds, set
+`acme_environment: production` and apply again for trusted HTTPS. The VPS serves
+`/`, `/metrics`, `/logs`, and `/headlamp` on the configured hostname.
+
+For WSL, follow the installation subsection for your chosen path below. Stop and
+fix any `BLOCKED` message or failed command before continuing. Dry-run checks
+downloads and renders enabled charts but cannot prove runtime readiness.
+
+#### Install a published release (path A)
+
+With `platform: true`, preview and install the full platform:
 
 ```bash
 sudo ak3s install --dry-run
@@ -217,7 +234,39 @@ sudo ak3s install
 sudo ak3s status
 ```
 
-Dry-run checks downloads and renders charts but cannot prove runtime readiness. Stop and fix any `BLOCKED` message or failed command. A successful install should leave an active K3s service and a Ready node; the next step checks the platform and real workloads.
+Continue to the shared runtime checks after installation succeeds.
+
+#### Install local source (path B)
+
+From the checkout root, with the WSL configuration above saved, run:
+
+```bash
+make install-local
+```
+
+The helper builds the CLI and dashboard image, validates the installation,
+starts K3s, streams the image directly into K3s, and applies the full platform.
+It waits for the dashboard and installs the built CLI as `/usr/local/bin/ak3s`.
+It requests sudo access when needed; run Make as your usual lab user.
+
+Keep `platform: true` throughout. The helper handles bootstrap ordering with a
+private temporary configuration and preserves `/etc/ak3s/values.yaml`. You do
+not need to create or manage an image archive. AK3S's ownership, node identity,
+checksum, and upgrade checks still apply.
+
+After it succeeds, check the result:
+
+```bash
+ak3s version
+sudo ak3s status
+sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n ak3s get pods
+```
+
+Expect the dashboard to show `1/1 Running`. Run `make install-local` again after
+source changes or an interrupted local installation. It also restarts an
+existing dashboard to use the rebuilt image. Then continue to the shared runtime
+checks. Use `make install-local AK3S_CONFIG=/path/to/values.yaml` if your operator
+configuration is stored elsewhere.
 
 ## 4. Run the shared runtime checks
 
@@ -232,31 +281,72 @@ printf '%s\n' "$AK3S_TEST_ADDRESS"
 
 This only looks up a route; it sends no traffic to the example address. Recompute it after every WSL restart. The runtime guide uses `curl --resolve` so neither public DNS nor a hosts-file edit is needed. The demo's `hello.test` hostname selects its ingress rule and certificate; it is separate from the node name. Keep this check on the WSL IP because K3s ServiceLB routes ingress through host-port rules, which localhost forwarding may not expose as a listening socket.
 
-For background access from a local checkout, stop any manual port-forwards from
-the runtime checklist and run:
+### Test shared UI paths
+
+The WSL configuration above already enables `/metrics`, `/logs`, and
+`/headlamp` through one local dashboard port-forward.
+
+For an existing cluster that uses an older configuration, first merge
+`dashboard_shared_paths: true`, `dashboard_hostname: ""`, and
+`headlamp_hostname: ""` into the operator file and run `sudo ak3s apply`.
+Source builds need the matching CLI and dashboard image from
+[the local source instructions](#b-test-local-source-before-release).
+
+After completing the installation or configuration update, forward the
+dashboard Service from WSL:
 
 ```bash
-make port-forward        # starts all four UIs and returns to the shell
+sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n ak3s port-forward --address 127.0.0.1 service/dashboard 5173:80
+```
+
+If port 5173 is already occupied, stop the existing dashboard forward or Vite
+server first. The port-forward command stays running. In Windows, open:
+
+| URL | UI |
+| --- | --- |
+| `http://localhost:5173/` | AK3S dashboard |
+| `http://localhost:5173/metrics` | VictoriaMetrics |
+| `http://localhost:5173/logs` | VictoriaLogs |
+| `http://localhost:5173/headlamp` | Headlamp |
+
+`127.0.0.1` also works. The dashboard cards use the address in your browser, so
+they stay on the WSL test cluster. Metrics and logs redirect to their native UI
+paths under the same prefixes. No public DNS, dashboard login Secret, or HTTPS
+certificate is needed for these local requests. Headlamp still needs its temporary
+Kubernetes viewer token, as described in the [access guide](operations.md#access).
+
+With `localhostForwarding=true`, Windows can reach these addresses directly.
+If forwarding is unavailable, run the curl checks inside the test environment
+first and follow [WSL networking guidance](https://learn.microsoft.com/en-us/windows/wsl/networking).
+Keep the forward bound to `127.0.0.1`. The dashboard runs inside the cluster;
+no local Node.js process is needed.
+
+Verify a metrics query, a log search, and Headlamp resource browsing. This tests
+the shared paths and Windows-to-WSL forwarding. Test NGINX ingress, trusted HTTPS,
+and the public password prompt separately on the VPS.
+
+### Optional separate tool forwards
+
+For separate tool connections, stop the manual forwards and use the helper from
+the checkout:
+
+```bash
+make port-forward
 make port-forward-status
 # When finished:
 make port-forward-stop
 ```
 
-The [access guide](operations.md#start-all-uis-for-local-testing) covers
-prerequisites, logs, and the Headlamp login token. Use
-`make port-forward DASHBOARD=0` to skip the dashboard forward.
-Without a checkout, use the manual port-forwards in separate terminals.
+It starts all four forwards in the background. The dashboard remains at
+`http://127.0.0.1:5173` with the shared tool links. Direct connections use
+`http://127.0.0.1:8080/headlamp/` for Headlamp,
+`http://127.0.0.1:8428/vmui/` for metrics, and
+`http://127.0.0.1:9428/select/vmui/` for logs. The Headlamp prefix also applies
+when developing with Vite. See the [access guide](operations.md#start-all-uis-for-local-testing)
+for helper prerequisites and logs.
 
-In Windows, open `http://127.0.0.1:5173` for the AK3S dashboard,
-`http://127.0.0.1:8080` for Headlamp, `http://127.0.0.1:8428/vmui/` for metrics,
-and `http://127.0.0.1:9428/select/vmui/` for logs. The dashboard runs inside the cluster; no local Node.js process is needed.
-All four tools read the test cluster. These requests test
-Windows-to-WSL access in addition to the Linux checks. With
-`localhostForwarding=true`, no SSH tunnel is needed for this local setup.
-`localhost` also works if it resolves to IPv4. If localhost forwarding is
-unavailable, run the curl checks inside the test environment first and follow
-[WSL networking guidance](https://learn.microsoft.com/en-us/windows/wsl/networking).
-Do not use `--address 0.0.0.0` to make private services reachable.
+Set `dashboard_shared_paths: false` and apply again to restore the default
+separate-tool setup, including Headlamp at `http://127.0.0.1:8080/`.
 
 ### Test a distribution stop and start
 
@@ -330,7 +420,10 @@ Remove private test exports when no longer needed. Restore the original `%UserPr
 
 ## Move to the VPS
 
-Create a fresh VPS that meets the [host requirements](vps.md#host-requirements). Install the **same tested AK3S release**, with a real contact email and VPS API endpoint. If you tested local source, publish the tested source and repeat the published-release path first. Do not copy the test environment's datastore, token, kubeconfig, self-signed TLS secret, or WSL configuration into the VPS.
+Create a fresh VPS that meets the [host requirements](vps.md#host-requirements). Install the **same tested AK3S release**, with a real contact email and a Kubernetes API endpoint for the VPS. If you tested local source, publish the tested source and repeat the published-release path first. Do not copy the test environment's datastore, token, kubeconfig, self-signed TLS secret, or WSL configuration into the VPS.
+
+Use the [VPS configuration and installation sequence](vps.md#configure-and-install)
+for shared HTTPS access.
 
 Repeat the runtime checklist there, including its [public VPS checks](runtime-testing.md#public-vps-checks). Confirm external DNS, API access restrictions, HTTP and HTTPS routing, staging then production certificate issuance, reboot recovery, and restoration using the real backup destination. Match the workload and retention settings you intend to run; successful tests with 4 GB RAM do not establish the resources needed for a production deployment.
 
@@ -347,7 +440,24 @@ Repeat the runtime checklist there, including its [public VPS checks](runtime-te
 | Certificate for `hello.test` is not trusted | Expected for the local self-signed demo; only that demo uses `curl -k`. Public trusted issuance is a separate VPS check |
 | ACME errors for a local hostname | Use `local-app.yaml`, not the public-domain example. `hello.test` is not eligible for Let's Encrypt |
 | Pods pending, OOMKilled (terminated because memory was exhausted), or image downloads fail | Check actual RAM and disk space, persistent volume claim (PVC) events, outbound HTTPS, registry connectivity, and `journalctl -u k3s` |
+| Dashboard rollout fails with `ImagePullBackOff` for the local `:dev` image | Run `make install-local` from the checkout; see [dashboard image recovery](#dashboard-image-recovery) |
 | Interrupted installation or failed chart | Fix the underlying failure and rerun AK3S; preserve its ownership, configuration, and state files |
 | First install fails, but K3s is active and the node later becomes Ready | Check the API with `sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get --raw=/readyz`, then rerun `sudo ak3s install` with the same configuration. A Ready node alone does not confirm platform installation; missing ClusterIssuers can make `status` fail until cert-manager is installed |
+
+### Dashboard image recovery
+
+For a local-source installation that failed with `ImagePullBackOff`, keep
+`platform: true` and run this from the checkout root:
+
+```bash
+make install-local
+```
+
+The helper rebuilds and imports the image, restarts the dashboard, and completes
+the platform installation. Docker and K3s use separate image stores; a standalone
+`make build` only builds the CLI, and `make dashboard-image` only builds the image
+in Docker. The helper handles both stores. A custom `dashboard_image` must use a
+tag for local builds; see the [dashboard build guide](../dashboard/README.md#build-and-deploy-local-source)
+for registry images and additional nodes.
 
 Reference: Microsoft's [WSL commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands), [configuration](https://learn.microsoft.com/en-us/windows/wsl/wsl-config), and [systemd setup](https://learn.microsoft.com/en-us/windows/wsl/systemd).

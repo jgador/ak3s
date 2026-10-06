@@ -46,7 +46,7 @@ func TestInstallerMigrationAndRepeatedRuns(t *testing.T) {
 			s := freshSnapshot()
 			command := "apply"
 			if mode == "agent" {
-				c.Node.Role, c.Node.Join, c.Node.TokenFile, c.APIEndpoint = "agent", true, "/root/join-token", "10.0.0.1"
+				c.Node.Role, c.Node.Join, c.Node.TokenFile, c.KubernetesAPIEndpoint = "agent", true, "/root/join-token", "10.0.0.1"
 			}
 			if mode == "arm64" {
 				s.Arch = "arm64"
