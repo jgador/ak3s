@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    ak3s.io/managed-by: ak3s
+    ak3s.io/application: {{ .Values.application | quote }}
+spec:
+  serviceName: {{ .Release.Name }}-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      ak3s.io/application: {{ .Values.application | quote }}
+  template:
+    metadata:
+      labels:
+        ak3s.io/application: {{ .Values.application | quote }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: {{ required "a pinned PostgreSQL image is required" .Values.image | quote }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "existingSecret is required" .Values.existingSecret | quote }}
+                  key: password
+            - name: PGDATA
+              value: {{ printf "/var/lib/postgresql/%s/docker" (first (splitList "." .Chart.AppVersion)) | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          startupProbe:
+            exec:
+              command: [sh, -c, 'exec pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: [sh, -c, 'exec pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: [sh, -c, 'exec pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-data

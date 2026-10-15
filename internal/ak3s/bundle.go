@@ -82,16 +82,7 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 	if !p.Config.Platform {
 		return b, nil
 	}
-	archive, err := n.Downloads.Get(ctx, "https://get.helm.sh/helm-"+p.Pins.Helm+"-linux-"+arch+".tar.gz", p.Pins.HelmSHA256[arch])
-	if err != nil {
-		return nil, err
-	}
-	binary, err := helmBinary(archive, arch)
-	if err != nil {
-		return nil, err
-	}
-	b.Helm = filepath.Join(dir, "helm")
-	if err = os.WriteFile(b.Helm, binary, 0700); err != nil {
+	if err = n.prepareHelm(ctx, b, p.Pins, arch); err != nil {
 		return nil, err
 	}
 	if p.Snapshot.Kubeconfig && p.Snapshot.Managed && p.Snapshot.ServiceActive {
@@ -181,6 +172,23 @@ func (n NativePreparer) Prepare(ctx context.Context, p Plan) (bundle *Bundle, er
 		}
 	}
 	return b, nil
+}
+
+// prepareHelm stages the same verified, isolated Helm binary for platform and application commands.
+func (n NativePreparer) prepareHelm(ctx context.Context, b *Bundle, pins Pins, arch string) error {
+	if arch != "amd64" && arch != "arm64" {
+		return fmt.Errorf("unsupported architecture %s", arch)
+	}
+	archive, err := n.Downloads.Get(ctx, "https://get.helm.sh/helm-"+pins.Helm+"-linux-"+arch+".tar.gz", pins.HelmSHA256[arch])
+	if err != nil {
+		return err
+	}
+	binary, err := helmBinary(archive, arch)
+	if err != nil {
+		return err
+	}
+	b.Helm = filepath.Join(b.Dir, "helm")
+	return os.WriteFile(b.Helm, binary, 0700)
 }
 
 // helmUpgradeArgs replaces previous values and enables rollback for each release.

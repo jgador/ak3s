@@ -15,7 +15,7 @@ option=${2:-}
 [[ $# -le 2 && "$action" =~ ^(start|status|stop)$ ]] || fail 'Usage: port-forward.sh [start [--no-dashboard]|status|stop]'
 [[ -z "$option" || ( "$action" == start && "$option" == --no-dashboard ) ]] || fail 'Only start accepts --no-dashboard.'
 (( BASH_VERSINFO[0] >= 4 )) || fail 'Bash 4 or newer is required.'
-for tool in flock nohup ss grep cat chmod mkdir rm sleep; do
+for tool in flock nohup ss grep cat chmod mkdir rm sleep curl; do
   command -v "$tool" >/dev/null || fail "Required command is missing: $tool"
 done
 [[ -r /proc/sys/kernel/random/boot_id ]] || fail 'Linux or WSL2 is required.'
@@ -90,8 +90,25 @@ stop_one() {
   rm -f -- "$state_dir/$name.pid"
 }
 
+# Headlamp moves its UI under /headlamp when shared dashboard paths are enabled.
+# Probe the forwarded URLs without reading operator configuration or API tokens.
+headlamp_url() {
+  local code
+  managed headlamp && listening headlamp || return 0
+  code=$(curl --noproxy '*' --silent --max-time 1 --output /dev/null --write-out '%{http_code}' "${urls[headlamp]}/") || return 0
+  [[ "$code" == 404 ]] || return 0
+  code=$(curl --noproxy '*' --silent --max-time 1 --output /dev/null --write-out '%{http_code}' "${urls[headlamp]}/headlamp/") || return 0
+  [[ "$code" == 200 ]] || return 0
+  urls[headlamp]+=/headlamp/
+  if managed dashboard && listening dashboard; then
+    code=$(curl --noproxy '*' --silent --max-time 1 --output /dev/null --write-out '%{http_code}' "${urls[dashboard]}/headlamp/") || return 0
+    [[ "$code" != 200 ]] || urls[headlamp]="${urls[dashboard]}/headlamp/"
+  fi
+}
+
 show_status() {
   local name result=0 status
+  headlamp_url
   for name in "${names[@]}"; do
     status=stopped
     if managed "$name" && listening "$name"; then
@@ -142,9 +159,27 @@ if "$needs_k3s"; then
     kubectl=(sudo -n -- "${kubectl[@]}")
   fi
 fi
-if [[ "$option" != --no-dashboard ]]; then
-  command -v curl >/dev/null || fail 'curl is required to check dashboard readiness.'
-fi
+service_location() {
+  namespace=observability
+  remote_port=${ports[$1]}
+  if [[ "$1" == headlamp ]]; then
+    namespace=headlamp
+    remote_port=80
+  elif [[ "$1" == dashboard ]]; then
+    namespace=ak3s
+    remote_port=80
+  fi
+}
+
+# Check required Services before starting any processes. A missing namespace or
+# Service needs installation, not repeated attempts to start a forward.
+for name in "${selected[@]}"; do
+  managed "$name" && continue
+  service_location "$name"
+  service=$("${kubectl[@]}" -n "$namespace" get "service/$name" --ignore-not-found -o name --request-timeout=10s 2>/dev/null) || \
+    fail "Cannot inspect service/$name in namespace $namespace. Check access to the local K3s cluster."
+  [[ -n "$service" ]] || fail "Required service/$name in namespace $namespace is missing. Port-forwarding only exposes installed UIs; the AK3S platform must be installed first."
+done
 
 newly_started=()
 complete=false
@@ -168,15 +203,7 @@ for name in "${selected[@]}"; do
   fi
   listening "$name" && fail "Port ${ports[$name]} is already in use. Stop its owner or an earlier manual forward, then retry."
   rm -f -- "$state_dir/$name.pid"
-  namespace=observability
-  remote_port=${ports[$name]}
-  if [[ "$name" == headlamp ]]; then
-    namespace=headlamp
-    remote_port=80
-  elif [[ "$name" == dashboard ]]; then
-    namespace=ak3s
-    remote_port=80
-  fi
+  service_location "$name"
   command=("${kubectl[@]}" -n "$namespace" port-forward --address 127.0.0.1 --pod-running-timeout=15s "service/$name" "${ports[$name]}:$remote_port")
   (
     # Close the lock descriptor in children; otherwise later commands cannot run.

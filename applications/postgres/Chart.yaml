@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ak3s-postgres
+description: Optional standalone PostgreSQL for AK3S with an independently managed PVC
+type: application
+version: 0.1.0
+appVersion: "18.6"

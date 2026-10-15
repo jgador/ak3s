@@ -13,6 +13,10 @@ make release
 
 The normal tests use simulated host operations and process execution and need no root, cluster, or cloud credentials. They run offline after module download. Release builds produce static Linux amd64/arm64 binaries, the installer, and checksums in `dist/`.
 
+Headlamp token tests check local server ownership and readiness, command arguments,
+token-only output, rejected responses, and temporary cache cleanup. They do not
+request real tokens.
+
 For local credential checks, follow [secret scanning](secret-scanning.md).
 `make test-secrets` runs isolated scanner and hook tests with Bash, jq, and
 Gitleaks 8.30.1 or newer 8.x. `make secrets-scan` checks the index and working
@@ -40,6 +44,7 @@ Validate real pinned downloads and Helm rendering without a cluster:
 
 ```bash
 go test -tags integration -run 'TestPinned(Charts|Installer|K3sArtifacts)' -v ./internal/ak3s
+go test -tags integration -run TestPinnedPostgresRecipe -v ./internal/ak3s
 ```
 
 The installer contract test downloads the pinned, unmodified upstream script and

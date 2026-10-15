@@ -15,6 +15,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ak3s-dashboard ./cmd/ak3s-dashboard
+COPY applications ./applications
 COPY internal ./internal
 COPY platform ./platform
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /ak3s-dashboard ./cmd/ak3s-dashboard

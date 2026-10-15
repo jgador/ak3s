@@ -20,7 +20,9 @@ four platform Services must be ready. The AK3S dashboard is installed by
 `ak3s install`, `apply`, and `upgrade` when `platform: true`.
 
 The command starts these listeners in the background, waits for startup, prints
-their URLs, and returns to your shell. It does not tail logs. Run it as your normal
+their URLs, and returns to your shell. It checks Headlamp's path and prints its
+dashboard URL when shared paths and the dashboard forward are available.
+It does not tail logs. Run it as your normal
 WSL user; it asks for sudo access if needed for the local K3s kubeconfig at
 `/etc/rancher/k3s/k3s.yaml`. It does not select a cluster from your default kubectl
 context. Node.js and npm are only needed for frontend development.
@@ -64,6 +66,21 @@ nonzero status, retain logs, and stop listeners created by that call. Existing
 managed listeners are preserved. Occupied ports produce an error; the helper
 does not stop their owners. Stop any manual forwards before using it.
 
+Before starting new forwards, the helper checks each required Service. If it
+reports `service/headlamp in namespace headlamp is missing`, Headlamp is not
+installed at the expected location. Port-forwarding does not install the UIs.
+Check the local cluster with:
+
+```bash
+sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n headlamp get deployment,pods,service
+```
+
+On an existing AK3S-managed server, reconcile its platform with `sudo ak3s apply`,
+then retry `make port-forward`. An existing K3s cluster without the AK3S ownership
+marker is not managed by AK3S; follow the [installation](../README.md#install) or
+[migration](migration.md) guidance as applicable. Do not create an ownership marker
+to bypass the checks.
+
 Forwarding stops when its selected pod exits or WSL shuts down. It does not
 reconnect automatically; rerun `make port-forward` after the cluster recovers.
 Keep the WSL test environment running while browsing. The status command checks
@@ -72,8 +89,14 @@ local processes and listening ports, not cluster health.
 Headlamp still needs a viewer token. Generate it separately and keep it private:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n headlamp create token headlamp-viewer --duration=1h
+sudo ak3s headlamp-token
 ```
+
+This prints a new one-hour token for the `headlamp-viewer` service account in
+the local AK3S-managed K3s cluster. Paste it into Headlamp's login page.
+It uses `/etc/rancher/k3s/k3s.yaml`, does not read operator configuration, and
+does not save the token to a file. In a source checkout, `make headlamp-token`
+builds and runs `bin/ak3s headlamp-token`, asking for sudo access when needed.
 
 ### Manual access and remote hosts
 
@@ -93,7 +116,7 @@ origins. Use the shared hostname option below for HTTPS access.
 Headlamp provides a read-only viewer login:
 
 ```bash
-sudo k3s kubectl -n headlamp create token headlamp-viewer --duration=1h
+sudo ak3s headlamp-token
 sudo k3s kubectl -n headlamp port-forward service/headlamp 8080:80
 ```
 

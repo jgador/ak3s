@@ -66,12 +66,25 @@ sudo k3s kubectl apply -f app.yaml
 
 The example uses Let's Encrypt staging. After testing issuance, select `letsencrypt-production` and enable `nginx.org/ssl-redirect`.
 
+Optional applications are managed separately from the platform. The first recipe
+installs PostgreSQL with a persistent volume claim (PVC) and a private Service:
+
+```bash
+ak3s apps list
+sudo ak3s apps add postgres --name app-db --existing-secret app-db-auth
+```
+
+Create its namespace and credential Secret, then use `ak3s apps apply --dry-run`
+and `ak3s apps apply`. See [optional applications](docs/applications.md) for
+credentials, storage, upgrades, and the [application configuration](examples/apps.yaml).
+
 ## Reference
 
 - [VPS and firewall setup](docs/vps.md)
 - [WSL2 testing before a VPS deployment](docs/wsl-testing.md)
 - [Runtime testing on WSL2 or a VPS](docs/runtime-testing.md)
 - [Configuration](docs/configuration.md)
+- [Optional applications and PostgreSQL](docs/applications.md)
 - [Access, upgrades, backups, and troubleshooting](docs/operations.md)
 - [Architecture and availability](docs/architecture.md)
 
@@ -107,7 +120,9 @@ For a local AK3S test cluster, `make port-forward` forwards the dashboard and al
 three tool Services in the background. Open `http://127.0.0.1:5173` for the
 dashboard, including from Windows through WSL. Use `make port-forward-status`
 to check them and `make port-forward-stop` when finished. Node.js is only needed
-for frontend development. See [local UI access](docs/operations.md#start-all-uis-for-local-testing)
+for frontend development. Run `sudo ak3s headlamp-token` for a one-hour viewer
+login token, or `make headlamp-token` from a source checkout.
+See [local UI access](docs/operations.md#start-all-uis-for-local-testing)
 and [building the dashboard image](dashboard/README.md#build-and-deploy-local-source).
 
 For a fresh local WSL installation test, invoke `$clean-slate` from this repository
