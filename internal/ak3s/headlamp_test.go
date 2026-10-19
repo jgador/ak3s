@@ -18,10 +18,6 @@ func TestHeadlampTokenUsesLocalServerAndPrintsOnlyToken(t *testing.T) {
 		t.Fatal("token creation read operator configuration")
 		return nil, nil
 	}
-	app.WriteFile = func(string, []byte, fs.FileMode) error {
-		t.Fatal("token creation wrote a file")
-		return nil
-	}
 	var cache string
 	calls := 0
 	app.Runner = runFunc(func(ctx context.Context, cmd Command) ([]byte, error) {

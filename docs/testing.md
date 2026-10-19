@@ -38,13 +38,16 @@ same Kubernetes port-forward contract.
 The tests use no cluster or credentials. Validate
 actual service access and Windows-to-WSL forwarding on a running test cluster.
 
+Validate the manual PostgreSQL manifests against a disposable cluster and check
+database startup, persistence, and backup restoration using the
+[PostgreSQL runtime checks](applications.md#runtime-validation).
+
 ## Integration checks
 
 Validate real pinned downloads and Helm rendering without a cluster:
 
 ```bash
 go test -tags integration -run 'TestPinned(Charts|Installer|K3sArtifacts)' -v ./internal/ak3s
-go test -tags integration -run TestPinnedPostgresRecipe -v ./internal/ak3s
 ```
 
 The installer contract test downloads the pinned, unmodified upstream script and

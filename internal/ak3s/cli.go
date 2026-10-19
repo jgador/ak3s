@@ -19,17 +19,16 @@ import (
 // App connects CLI commands to host inspection, artifact preparation, and execution.
 // These dependencies can be replaced in tests without modifying a real host.
 type App struct {
-	Host      Host
-	Preparer  Preparer
-	Runner    Runner
-	ReadFile  func(string) ([]byte, error)
-	WriteFile func(string, []byte, fs.FileMode) error
-	Out, Err  io.Writer
+	Host     Host
+	Preparer Preparer
+	Runner   Runner
+	ReadFile func(string) ([]byte, error)
+	Out, Err io.Writer
 }
 
 // NewApp constructs the CLI with real host operations and the supplied output streams.
 func NewApp(out, err io.Writer) *App {
-	return &App{Host: NewNativeHost(), Preparer: NativePreparer{Downloads: HTTPDownloader{}, Runner: ExecRunner{}}, Runner: ExecRunner{}, ReadFile: os.ReadFile, WriteFile: AtomicWrite, Out: out, Err: err}
+	return &App{Host: NewNativeHost(), Preparer: NativePreparer{Downloads: HTTPDownloader{}, Runner: ExecRunner{}}, Runner: ExecRunner{}, ReadFile: os.ReadFile, Out: out, Err: err}
 }
 
 const usage = `Usage: ak3s <command> [options]
@@ -40,7 +39,6 @@ Commands:
   upgrade   Apply this AK3S release's pinned versions; allow a safe K3s upgrade
   uninstall Remove local K3s and its data using the generated upstream script
   status    Read this node's state and cluster resources
-  apps      Manage optional applications (list, add, render, apply, upgrade, status)
   headlamp-token Print a one-hour Headlamp viewer login token
   dashboard-snapshot Print sanitized live dashboard data as JSON (read only)
   config    Print merged configuration, or --defaults for embedded defaults
@@ -64,9 +62,6 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		return err
 	}
 	command := args[0]
-	if command == "apps" {
-		return a.runApplications(ctx, args[1:])
-	}
 	if command == "headlamp-token" {
 		return a.headlampToken(ctx, args[1:])
 	}

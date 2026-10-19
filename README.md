@@ -66,17 +66,18 @@ sudo k3s kubectl apply -f app.yaml
 
 The example uses Let's Encrypt staging. After testing issuance, select `letsencrypt-production` and enable `nginx.org/ssl-redirect`.
 
-Optional applications are managed separately from the platform. The first recipe
-installs PostgreSQL with a persistent volume claim (PVC) and a private Service:
+Optional applications use standard Kubernetes manifests independently of the
+platform. This repository includes a standalone [PostgreSQL recipe](applications/postgres/README.md)
+with persistent storage and private Services. Copy the manifests to your running
+K3s server and create the namespace and credential Secret as documented. From the
+copied `postgres` directory, validate and apply them:
 
 ```bash
-ak3s apps list
-sudo ak3s apps add postgres --name app-db --existing-secret app-db-auth
+sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply --dry-run=server -k .
+sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply -k .
 ```
 
-Create its namespace and credential Secret, then use `ak3s apps apply --dry-run`
-and `ak3s apps apply`. See [optional applications](docs/applications.md) for
-credentials, storage, upgrades, and the [application configuration](examples/apps.yaml).
+The server needs only the YAML files and its existing K3s installation.
 
 ## Reference
 

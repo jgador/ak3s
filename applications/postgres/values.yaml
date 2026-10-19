@@ -1,5 +1,0 @@
-application: ""
-image: ""
-database: app
-username: postgres
-existingSecret: ""

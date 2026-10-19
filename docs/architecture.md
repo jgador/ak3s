@@ -4,12 +4,12 @@ AK3S keeps infrastructure costs low by running a K3s control plane, applications
 
 See [how AK3S uses upstream K3s](k3s-lifecycle.md) for the division of responsibilities and the installation sequence.
 
-[Optional applications](applications.md) have a separate catalog and application
-configuration. The `ak3s apps` commands reuse verified Helm preparation while
-operating only on workloads in the existing managed cluster. The first recipe
-deploys standalone PostgreSQL and keeps its PVC outside the Helm release so a
-release rollback retains database storage. Platform commands do not install
-or upgrade these applications.
+[Optional applications](applications.md) use standard Kubernetes manifests and
+independent deployment workflows. The repository includes a PostgreSQL Kustomize
+base that operators apply directly with `k3s kubectl`. PostgreSQL uses one StatefulSet
+replica, private Services, and a separately declared PVC. Operator overrides and
+credentials stay outside tracked defaults. The AK3S binary contains no application
+catalog or application deployment commands.
 
 ## Traffic and services
 

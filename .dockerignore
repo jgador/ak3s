@@ -5,8 +5,6 @@
 !cmd
 !cmd/ak3s-dashboard
 !cmd/ak3s-dashboard/**
-!applications
-!applications/**
 !internal
 !internal/ak3s
 !internal/ak3s/**
