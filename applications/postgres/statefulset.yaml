@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: postgres
+  name: psql-server
 spec:
-  serviceName: postgres-headless
+  serviceName: psql-server-headless
   replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: postgres
-      app.kubernetes.io/instance: postgres
+      app.kubernetes.io/instance: psql-server
   template:
     metadata:
       labels:
         app.kubernetes.io/name: postgres
-        app.kubernetes.io/instance: postgres
+        app.kubernetes.io/instance: psql-server
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 60
@@ -32,13 +32,15 @@ spec:
               containerPort: 5432
           env:
             - name: POSTGRES_DB
-              value: app
+              # Keep only the built-in maintenance database. Application
+              # repositories provision their own psqldb-<application> databases.
+              value: postgres
             - name: POSTGRES_USER
               value: postgres
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-auth
+                  name: psql-server-auth
                   key: password
             - name: PGDATA
               value: /var/lib/postgresql/18/docker
@@ -72,4 +74,4 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: postgres-data
+            claimName: psql-server-data

@@ -8,7 +8,10 @@ See [how AK3S uses upstream K3s](k3s-lifecycle.md) for the division of responsib
 independent deployment workflows. The repository includes a PostgreSQL Kustomize
 base that operators apply with local `kubectl` connected to the VPS API. The
 manifests stay on the workstation. PostgreSQL uses one StatefulSet replica,
-private Services, and a separately declared PVC. Operator overrides and
+private Services, and a separately declared `20Gi` PVC on an expandable CSI
+storage class. Server resource names use `psql-`; application repositories
+provision their own `psqldb-` databases, roles, and migrations. The default Hetzner
+CSI driver is an external infrastructure prerequisite. Operator overrides and
 credentials stay outside tracked defaults. The AK3S binary contains no application
 catalog or application deployment commands.
 
