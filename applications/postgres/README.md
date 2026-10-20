@@ -1,13 +1,16 @@
-# Manually deploy PostgreSQL on a VPS
+# Deploy PostgreSQL on a VPS from your workstation
 
 Use these manifests to install PostgreSQL into an **already running AK3S or K3s
-cluster** on Hetzner Cloud or another VPS provider. Run Kubernetes commands yourself
-over SSH on the server. This procedure uses the K3s installation you already have.
+cluster** on Hetzner Cloud or another VPS provider. Run `kubectl` on your workstation
+to deploy to the VPS. It reads the local YAML files and sends resources to the
+Kubernetes API; PostgreSQL and its persistent data run on the VPS.
 
-Your workstation needs SSH and SCP to transfer the files. The server needs K3s,
-Bash, and root or sudo access. Make, Go, Helm, and application CLI commands are
-not required. Kustomize, which combines the YAML files, is included in
-`k3s kubectl`.
+Your workstation needs Bash, SSH, a local checkout of this repository, and
+[`kubectl`](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
+compatible with the cluster's Kubernetes version. On Windows, run the Bash examples
+inside WSL. Kustomize, which combines the YAML files, is included in `kubectl`.
+You do not need to copy the manifests to the VPS or install K3s, Helm, Make, Go,
+or the AK3S CLI on your workstation. The VPS must already have K3s running.
 
 ## What will be installed
 
@@ -44,46 +47,112 @@ restrict access to selected applications. PostgreSQL authentication still applie
 The namespace and password Secret are deliberately created separately. There are
 no password values in these files.
 
-## 1. Copy the directory to your server
+## 1. Connect local kubectl to the VPS cluster
 
-Run on your **workstation**, from the repository root. Replace `USER@VPS_ADDRESS`
-with your SSH account and VPS address. Use your usual SSH key; add `-i PATH` to
-SSH and SCP if you select a key explicitly.
+Run the commands in this guide in **Bash on your workstation**. Replace
+`USER@VPS_ADDRESS` with your SSH account and VPS address. Use your usual SSH key;
+add `-i PATH` if you select a key explicitly.
+
+Deployment examples use `~/.kube/ak3s-hetzner.yaml` for the live production
+cluster. Each command passes `--kubeconfig` explicitly instead of relying on
+`KUBECONFIG` or the current context. These are instructions for the human operator;
+agents must follow [AGENTS.md](../../AGENTS.md) and must not access production
+without explicit authorization for the specific operation. This instruction is
+a safeguard, not an access restriction enforced by Kubernetes.
+
+Use this dedicated kubeconfig for production. If you already have it, skip the
+retrieval block below. Otherwise, retrieve the K3s administrator kubeconfig over
+SSH and save it privately on your workstation:
 
 ```bash
-ssh USER@VPS_ADDRESS 'mkdir -p ~/deployments'
-scp -r applications/postgres USER@VPS_ADDRESS:deployments/
-ssh USER@VPS_ADDRESS
+(
+  set +x
+  set -euo pipefail
+  umask 077
+  mkdir -p "$HOME/.kube"
+  postgres_kubeconfig_file=$(mktemp "$HOME/.kube/ak3s-hetzner.XXXXXX")
+  trap 'rm -f -- "$postgres_kubeconfig_file"' EXIT
+  ssh USER@VPS_ADDRESS 'sudo -n cat /etc/rancher/k3s/k3s.yaml' > "$postgres_kubeconfig_file"
+  test -s "$postgres_kubeconfig_file"
+  mv -- "$postgres_kubeconfig_file" "$HOME/.kube/ak3s-hetzner.yaml"
+)
 ```
 
-Run the remaining deployment commands on the **VPS**, unless a section explicitly
-says otherwise:
+This retrieval requires remote sudo access without a password prompt. If your
+account does not have it, obtain the kubeconfig through your administrator or
+use an authorized root SSH account with `cat` instead of `sudo -n cat`.
+The default K3s kubeconfig grants cluster administrator access. Keep it private,
+outside the repository, and refresh it from the server when its certificates
+are renewed.
+
+Protect the file and check its context. The same explicit path is included in
+later deployment, port-forwarding, password rotation, and troubleshooting commands:
 
 ```bash
-cd ~/deployments/postgres
+chmod 600 "$HOME/.kube/ak3s-hetzner.yaml"
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" config current-context
+```
+
+For API access through SSH, open a **separate local terminal** and keep this tunnel
+running:
+
+```bash
+ssh -o ExitOnForwardFailure=yes -N -L 127.0.0.1:16443:127.0.0.1:6443 USER@VPS_ADDRESS
+```
+
+In your deployment terminal, point this kubeconfig at the tunnel:
+
+```bash
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" config set-cluster \
+  "$(kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" config view -o jsonpath='{.clusters[0].name}')" \
+  --server=https://127.0.0.1:16443
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" get nodes -o wide
+```
+
+The cluster-name expression assumes a dedicated kubeconfig with one cluster.
+Confirm that the listed nodes belong to the intended VPS before proceeding.
+The standard K3s API certificate includes `127.0.0.1`, so TLS verification remains
+enabled through this tunnel. Keep the tunnel running for all remote `kubectl`
+commands; no public access to TCP `6443` is needed for this connection.
+
+If you already have direct API access through a private network, VPN, or restricted
+firewall rules, you can use that connection instead of the tunnel. Replace
+`YOUR_API_HOST` below with a host included in the API certificate:
+
+```bash
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" config set-cluster \
+  "$(kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" config view -o jsonpath='{.clusters[0].name}')" \
+  --server=https://YOUR_API_HOST:6443
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" get nodes -o wide
+```
+
+See [API configuration](../../docs/configuration.md) and
+[VPS firewall requirements](../../docs/vps.md#firewall-requirements).
+
+From your **local repository root**, enter the manifest directory:
+
+```bash
+cd applications/postgres
 ls
 ```
 
-Expect this README and the four YAML files listed above. The server does not need
-the rest of the repository. `apply -k .` reads the files listed in
-`kustomization.yaml`; it does not apply the README.
-
-For later updates, compare new files with your server copies before replacing
-them. Preserve your database settings and operator changes.
+Expect this README and the four YAML files listed above. All subsequent manifest
+commands run from this local directory, or a local working copy containing the
+same files. `apply -k .` reads `kustomization.yaml`; it does not apply the README.
 
 ## 2. Check the existing cluster and available capacity
 
 ```bash
-sudo systemctl is-active k3s
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get nodes -o wide
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get storageclass local-path
-free -h
-df -h /var/lib/rancher/k3s
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" get nodes -o wide
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" get storageclass local-path
+ssh USER@VPS_ADDRESS 'systemctl is-active k3s'
+ssh USER@VPS_ADDRESS 'free -h'
+ssh -t USER@VPS_ADDRESS 'sudo df -h /var/lib/rancher/k3s'
 ```
 
 Expect K3s to be active and the server node to be Ready. Resolve cluster failures
-before deploying the database. The commands explicitly use the local K3s
-kubeconfig instead of a workstation's current Kubernetes context.
+before deploying the database. `kubectl` uses the VPS kubeconfig selected in
+step 1. The SSH commands inspect the VPS rather than your workstation.
 
 Check that the server has enough disk and memory for PostgreSQL alongside its
 existing workloads. The storage request does not reserve VPS disk space in
@@ -94,15 +163,17 @@ If `local-path` is missing, inspect `get storageclass` and choose an installed
 storage class before applying. Do not create an empty storage-class definition
 and expect it to provision storage.
 
-For this SSH-based procedure, no new public database port or Kubernetes API access
-from your workstation is needed. Keep TCP `5432` and the example local forward
-port `15432` private. Review both your provider firewall and host firewall;
-existing cluster networking and outbound image downloads must continue to work.
+Keep TCP `5432` and the local forward ports `15432` and `16443` private. Review
+both your provider firewall and host firewall; existing cluster networking and
+outbound image downloads must continue to work. Direct API access must be
+restricted to your administrative addresses or private network.
 
 ## 3. Review the configuration
 
-Edit the **copied files on the server** using your preferred editor. Keep these
-operator changes outside the repository's tracked defaults.
+Review the **local files** using your preferred editor. For custom settings, make
+a local working copy of the manifest directory outside the repository's tracked
+defaults and run subsequent manifest commands from that copy. Preserve your
+operator changes when updating it.
 
 | Change | Location |
 | --- | --- |
@@ -136,14 +207,14 @@ or change the password stored by PostgreSQL.
 Create the namespace, or retain it if it already exists:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml create namespace applications \
-  --dry-run=client -o yaml | sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply -f -
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" create namespace applications \
+  --dry-run=client -o yaml | kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -f -
 ```
 
 Check for existing workloads before using these resource names:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   get statefulsets,pods,pvc,services
 ```
 
@@ -153,9 +224,10 @@ an existing Helm release. The earlier AK3S Helm recipe used different names;
 applying this directory creates a separate instance. Preserve existing data and
 plan a migration before removing an old instance.
 
-For a first installation, run this block in **Bash on the server**. It prompts for
-a strong administrator password without placing it in shell history or command
-arguments, creates the Secret, and removes the private temporary password file.
+For a first installation, run this block in **Bash on your workstation**. It
+prompts for a strong administrator password without placing it in shell history
+or command arguments, creates the Secret, and removes the private temporary
+password file.
 
 ```bash
 (
@@ -172,7 +244,7 @@ arguments, creates the Secret, and removes the private temporary password file.
   test -n "$postgres_password"
   printf '%s' "$postgres_password" > "$postgres_password_file"
   unset postgres_password
-  sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+  kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
     create secret generic postgres-auth --from-file=password="$postgres_password_file"
 )
 ```
@@ -185,17 +257,17 @@ base64 encoding does not make a password confidential.
 Verify that the Secret exists without printing its contents:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   get secret postgres-auth
 ```
 
 ## 5. Preview and validate
 
-From `~/deployments/postgres` on the server:
+From your local manifest directory:
 
 ```bash
-k3s kubectl kustomize .
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply --dry-run=server -k .
+kubectl kustomize .
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply --dry-run=server -k .
 ```
 
 The first command renders the four resources without contacting the cluster.
@@ -206,7 +278,7 @@ not prove that the database can start or that the disk has sufficient capacity.
 For an update to an existing deployment, inspect differences before applying:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml diff -k .
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" diff -k .
 ```
 
 `diff` returns exit status `1` when differences exist, `0` when there are none, and
@@ -219,12 +291,12 @@ data. Reapplying after storage was deleted can create an empty database.
 Run each command separately. Stop and investigate if one fails:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply -k .
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -k .
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   rollout status statefulset/postgres --timeout=300s
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   wait '--for=jsonpath={.status.phase}=Bound' pvc/postgres-data --timeout=180s
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   get statefulset/postgres pod/postgres-0 pvc/postgres-data service/postgres service/postgres-headless
 ```
 
@@ -245,7 +317,7 @@ the same manifests updates the same named resources.
 Use the PostgreSQL client already in the database container:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   exec -it postgres-0 -- psql -h 127.0.0.1 -U postgres -d app -W
 ```
 
@@ -273,36 +345,33 @@ psql's `\password app_user` command to set its password interactively. Database
 schema migrations may need a separate account with broader permissions. Store
 application credentials in that application's own Secret, outside tracked YAML.
 
-## 8. Connect from your workstation through SSH
+## 8. Connect from your workstation with port-forwarding
 
-In one **server terminal**, start a loopback-only Kubernetes port-forward:
+In a **local terminal**, start a loopback-only Kubernetes port-forward using the
+explicit production kubeconfig:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   port-forward --address 127.0.0.1 service/postgres 15432:5432
 ```
 
-Keep it running. In a separate **workstation terminal**, start an SSH tunnel:
-
-```bash
-ssh -o ExitOnForwardFailure=yes -N -L 15432:127.0.0.1:15432 USER@VPS_ADDRESS
-```
-
-Connect psql, pgAdmin, DBeaver, or another database tool to `127.0.0.1:15432`, with
-database `app` and the appropriate account. If psql is installed on your
-workstation:
+Keep it running, along with the API tunnel if you use one. Connect psql, pgAdmin,
+DBeaver, or another database tool to `127.0.0.1:15432`, with database `app` and the
+appropriate account. If psql is installed on your workstation, run this in another
+local terminal:
 
 ```bash
 psql -h 127.0.0.1 -p 15432 -U postgres -d app -W
 ```
 
-Stop the tunnel and port-forward with Ctrl+C when finished. The port-forward can
+Stop the database port-forward with Ctrl+C when finished. The port-forward can
 exit after pod replacement; start it again when the replacement pod is ready.
 If local port `15432` is occupied, choose another workstation port, such as
-`25432`, in the left side of SSH's `-L` option and in your database tool.
+`25432`, in the left side of `25432:5432` and in your database tool.
 
-The forwarding connection is encrypted by SSH. This recipe does not configure
-PostgreSQL TLS for traffic between pods.
+`kubectl` carries the forwarding connection through the authenticated Kubernetes
+API connection. This recipe does not configure PostgreSQL TLS for traffic
+between pods.
 
 ## 9. Make backups and test restoration
 
@@ -310,14 +379,15 @@ Local-path storage survives pod replacement on the same node. It does not protec
 against disk failure, VPS loss, namespace deletion, or PVC deletion. A K3s datastore
 backup does not include PostgreSQL volume contents.
 
-For a manual logical backup of database `app`, run on the **server**:
+For a manual logical backup of database `app`, run on your **workstation**. The
+dump streams from the pod directly into a private local file:
 
 ```bash
 umask 077
-mkdir -p ~/backups/postgres
-chmod 700 ~/backups/postgres
-postgres_backup_file="$HOME/backups/postgres/app-$(date -u +%Y%m%dT%H%M%SZ).dump"
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+mkdir -p "$HOME/private-backups/postgres"
+chmod 700 "$HOME/private-backups/postgres"
+postgres_backup_file="$HOME/private-backups/postgres/app-$(date -u +%Y%m%dT%H%M%SZ).dump"
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   exec postgres-0 -- pg_dump -U postgres -d app --format=custom > "$postgres_backup_file"
 ```
 
@@ -329,7 +399,7 @@ authentication configuration.
 Check that PostgreSQL can read the archive:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   exec -i postgres-0 -- pg_restore --list < "$postgres_backup_file"
 ```
 
@@ -339,7 +409,7 @@ roles and their settings, also save globals privately:
 
 ```bash
 postgres_roles_file="${postgres_backup_file%.dump}-roles.sql"
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   exec postgres-0 -- pg_dumpall -U postgres --globals-only > "$postgres_roles_file"
 ```
 
@@ -347,25 +417,27 @@ The globals file can contain password hashes. Keep both files private, protect
 their transfer and storage, and retain the credential recovery information needed
 by your restore plan.
 
-Copy backups **outside the server**. For example, on your **workstation**, replace
-the example timestamp with the actual filenames:
+These backup files are already **outside the VPS** on your workstation. Retain
+another protected copy according to your backup policy.
+
+Test restoration on a **separate disposable cluster**. Deploy the recipe there.
+In a separate local terminal, establish API access to that cluster and verify its
+target nodes using `~/.kube/restore-test-k3s.yaml` before restoring.
+Do not run the restore commands against your production cluster. Replace the
+example archive path below with the actual local filename:
 
 ```bash
-mkdir -p ~/private-backups/postgres
-chmod 700 ~/private-backups/postgres
-scp USER@VPS_ADDRESS:backups/postgres/app-YYYYMMDDTHHMMSSZ.dump ~/private-backups/postgres/
-scp USER@VPS_ADDRESS:backups/postgres/app-YYYYMMDDTHHMMSSZ-roles.sql ~/private-backups/postgres/
+kubectl --kubeconfig "$HOME/.kube/restore-test-k3s.yaml" get nodes -o wide
 ```
 
-Test restoration on a **separate disposable server or database instance**. Deploy
-the recipe there, transfer the archive privately, and create an empty test database:
+Then create an empty test database and stream the local archive into it:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/restore-test-k3s.yaml" -n applications \
   exec postgres-0 -- createdb -U postgres restore_check
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/restore-test-k3s.yaml" -n applications \
   exec -i postgres-0 -- pg_restore -U postgres -d restore_check \
-  --no-owner --no-acl --exit-on-error < app-YYYYMMDDTHHMMSSZ.dump
+  --no-owner --no-acl --exit-on-error < "$HOME/private-backups/postgres/app-YYYYMMDDTHHMMSSZ.dump"
 ```
 
 This test restores content under the test administrator and omits original
@@ -387,7 +459,8 @@ the migration. Changing the image back does not restore database contents.
 
 To rotate the administrator password, connect using step 7 and run
 `\password postgres`. Keep that maintenance session open while updating the
-Kubernetes Secret. In a separate server terminal, enter the same new password:
+Kubernetes Secret. In a separate local terminal, enter the same new password using
+the explicit production kubeconfig:
 
 ```bash
 (
@@ -404,10 +477,10 @@ Kubernetes Secret. In a separate server terminal, enter the same new password:
   test -n "$postgres_password"
   printf '%s' "$postgres_password" > "$postgres_password_file"
   unset postgres_password
-  sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+  kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
     create secret generic postgres-auth --from-file=password="$postgres_password_file" \
     --dry-run=client -o yaml | \
-    sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply -f -
+    kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -f -
 )
 ```
 
@@ -423,16 +496,16 @@ maintenance session.
 To temporarily stop the database:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   scale statefulset/postgres --replicas=0
 ```
 
 To start it again:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   scale statefulset/postgres --replicas=1
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   rollout status statefulset/postgres --timeout=300s
 ```
 
@@ -441,7 +514,7 @@ replica count. To remove the workload and Services while retaining the PVC and
 Secret:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   delete statefulset/postgres service/postgres service/postgres-headless
 ```
 
@@ -452,13 +525,13 @@ removes local-path volumes. Verify an independent backup before deleting data.
 
 ## Troubleshooting
 
-Run these on the server:
+Run these on your workstation with the explicit production kubeconfig:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications describe pod postgres-0
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications logs postgres-0 --tail=100
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications describe pvc postgres-data
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications describe pod postgres-0
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications logs postgres-0 --tail=100
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications describe pvc postgres-data
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   get events --sort-by=.metadata.creationTimestamp
 ```
 
@@ -466,7 +539,7 @@ Keep logs and diagnostic output private if they contain application information.
 
 | Symptom | What to check |
 | --- | --- |
-| K3s API is unavailable | Service state, node readiness, local kubeconfig, and `sudo journalctl -u k3s -n 100` |
+| K3s API is unavailable | Selected kubeconfig, API tunnel or direct network access, node readiness, and remote service logs with `ssh -t USER@VPS_ADDRESS 'sudo journalctl -u k3s -n 100'` |
 | `CreateContainerConfigError` | The `postgres-auth` Secret exists in `applications` and has a nonempty `password` key |
 | `ImagePullBackOff` | Pod events, outbound DNS and HTTPS, registry access, and the complete pinned image reference |
 | Pod Pending | Scheduling events, CPU and memory capacity, node taints, and PVC binding |
@@ -475,24 +548,31 @@ Keep logs and diagnostic output private if they contain application information.
 | Pod is `OOMKilled` | Memory use and the `1Gi` limit; adjust capacity after checking server headroom |
 | Password authentication fails | The database's actual user/password; changing the Secret does not rotate an initialized password |
 | Application cannot connect | Service DNS, namespace, selected pod readiness, application credentials, and NetworkPolicies |
-| Workstation cannot connect | Both forwarding commands are running and the database tool uses the local forwarded port |
+| Workstation cannot connect | Local `kubectl port-forward` is running with the correct kubeconfig, the API tunnel is running if used, and the database tool uses the local forwarded port |
 
 For a restarted container, inspect its previous logs:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   logs postgres-0 --previous --tail=100
 ```
 
 ## Runtime validation
 
-On a disposable cluster, test database persistence as well as readiness:
+On a disposable cluster, test database persistence as well as readiness. The
+examples below use `~/.kube/ak3s-wsl-test.yaml`; replace it with your dedicated
+test kubeconfig if it has another name. Verify the test target first, and use this
+path in place of the production kubeconfig when following the deployment steps:
+
+```bash
+kubectl --kubeconfig "$HOME/.kube/ak3s-wsl-test.yaml" get nodes -o wide
+```
 
 1. Deploy and run an authenticated query.
 2. Write a test row and record the PVC UID with
-   `sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications get pvc postgres-data -o jsonpath='{.metadata.uid}'`.
+   `kubectl --kubeconfig "$HOME/.kube/ak3s-wsl-test.yaml" -n applications get pvc postgres-data -o jsonpath='{.metadata.uid}'`.
 3. Delete only the pod with
-   `sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml -n applications delete pod postgres-0`.
+   `kubectl --kubeconfig "$HOME/.kube/ak3s-wsl-test.yaml" -n applications delete pod postgres-0`.
 4. Wait for the replacement to become ready, reconnect, and verify the row remains.
 5. Reapply the directory and confirm the PVC UID and row are unchanged.
 6. Restore an off-server backup into a separate instance and verify its contents.

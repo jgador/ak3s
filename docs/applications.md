@@ -11,13 +11,20 @@ storage and private Services. Follow the complete
 [manual PostgreSQL deployment guide](../applications/postgres/README.md) for
 Hetzner Cloud or another VPS provider.
 
-The guide covers copying the directory to a running server, configuration,
-namespace and credential creation, preview and API validation, deployment,
-application connections, SSH access, backups and restoration, updates, retained
-data, and troubleshooting. It uses direct `k3s kubectl` commands.
+The guide covers local kubeconfig setup, API access through SSH or a direct
+connection, configuration, namespace and credential creation, preview and API
+validation, deployment, application connections, local port-forwarding, backups
+and restoration, updates, retained data, and troubleshooting. All command examples
+use Bash, including on WSL, and Kubernetes commands use local `kubectl`.
 
-The detailed README is included when you copy `applications/postgres`; the server
-needs only that directory and its existing K3s installation.
+Keep `applications/postgres` on your workstation. `kubectl` reads the local
+manifests and sends resources to the VPS cluster; no manifest transfer is needed.
+PostgreSQL and its persistent data run on the VPS.
+
+Operator deployment examples use `--kubeconfig "$HOME/.kube/ak3s-hetzner.yaml"`
+to select production explicitly. Agents must follow the production access rules
+in [AGENTS.md](../AGENTS.md); documentation and test requests do not authorize
+production access. Use a separate disposable-cluster kubeconfig for testing.
 
 ## Runtime validation
 

@@ -68,16 +68,18 @@ The example uses Let's Encrypt staging. After testing issuance, select `letsencr
 
 Optional applications use standard Kubernetes manifests independently of the
 platform. This repository includes a standalone [PostgreSQL recipe](applications/postgres/README.md)
-with persistent storage and private Services. Copy the manifests to your running
-K3s server and create the namespace and credential Secret as documented. From the
-copied `postgres` directory, validate and apply them:
+with persistent storage and private Services. Configure local `kubectl` to access
+your VPS cluster and create the namespace and credential Secret as documented.
+The following commands target production explicitly through
+`~/.kube/ak3s-hetzner.yaml`. Run them yourself when you intend to deploy there.
+From your local repository root, validate and apply the manifests:
 
 ```bash
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply --dry-run=server -k .
-sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply -k .
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply --dry-run=server -k applications/postgres
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -k applications/postgres
 ```
 
-The server needs only the YAML files and its existing K3s installation.
+The YAML files stay on your workstation; PostgreSQL and its data run on the VPS.
 
 ## Reference
 
