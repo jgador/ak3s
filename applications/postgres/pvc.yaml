@@ -4,8 +4,10 @@ metadata:
   name: psql-server-data
 spec:
   accessModes: [ReadWriteOnce]
-  # Requires an installed CSI driver and a class with allowVolumeExpansion: true.
-  storageClassName: hcloud-volumes
+  # Uses the node's existing disk. The request is not a quota or reserved space;
+  # files can grow beyond 20Gi while the underlying filesystem has free space.
+  # local-path does not support Kubernetes PVC expansion.
+  storageClassName: local-path
   resources:
     requests:
       storage: 20Gi

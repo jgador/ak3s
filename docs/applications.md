@@ -7,10 +7,11 @@ cluster.
 ## PostgreSQL
 
 The repository includes a standalone PostgreSQL Kustomize base for the shared
-`psql-server`, private Services, and a `20Gi` PVC using an expandable CSI storage
-class. The default class is `hcloud-volumes`; install the Hetzner CSI driver
-separately, or select a suitable class for your provider. K3s's default
-`local-path` class does not support PVC expansion. Follow the complete
+`psql-server`, private Services, and a `20Gi` PVC using K3s's `local-path` storage
+class on the node's existing disk. The request is not a quota or reserved space;
+database files can grow beyond it while the filesystem has free space. No CSI
+driver or separate cloud volume is required. Local-path does not support PVC
+expansion. Follow the complete
 [manual PostgreSQL deployment guide](../applications/postgres/README.md) for
 Hetzner Cloud or another VPS provider.
 
@@ -23,7 +24,8 @@ from installing or updating this server.
 The guide covers local kubeconfig setup, API access through SSH or a direct
 connection, configuration, namespace and credential creation, preview and API
 validation, deployment, application connections, local port-forwarding, backups
-and restoration, updates, volume expansion, retained data, and troubleshooting.
+and restoration, updates, disk monitoring and future growth, retained data, and
+troubleshooting.
 All command examples use Bash, including on WSL, and Kubernetes commands use
 local `kubectl`.
 
@@ -41,9 +43,9 @@ production access. Use a separate disposable-cluster kubeconfig for testing.
 Follow the PostgreSQL guide's
 [runtime validation steps](../applications/postgres/README.md#runtime-validation)
 on a disposable cluster. Test authenticated queries, persistence after pod
-replacement and repeated applies, CSI volume and filesystem expansion, and
-restoration from an off-server backup. Expansion requires a compatible CSI driver;
-WSL persistence checks with `local-path` do not validate expansion.
+replacement and repeated applies, cluster shutdown and restart, and restoration
+from an off-server backup. Check disk monitoring and the volume's node affinity.
+These local-path checks do not validate Kubernetes PVC expansion or disk migration.
 Rendered manifests and API validation do not prove database recovery.
 
 Use the broader [runtime testing guide](runtime-testing.md) when validating the

@@ -68,11 +68,12 @@ The example uses Let's Encrypt staging. After testing issuance, select `letsencr
 
 Optional applications use standard Kubernetes manifests independently of the
 platform. This repository includes a standalone [PostgreSQL recipe](applications/postgres/README.md)
-for the shared `psql-server`, with an expandable `20Gi` CSI volume and private
-Services. Each application repository provisions its own `psqldb-<application>`
+for the shared `psql-server`, with local persistent storage and private Services.
+The `20Gi` local-path request is not a quota: database files can grow into the
+existing disk's free space. Monitor disk use; local-path does not support PVC
+expansion. Each application repository provisions its own `psqldb-<application>`
 database, roles, and migrations. Configure local `kubectl` to access your VPS
-cluster, install the CSI driver and expandable storage class (`hcloud-volumes` on
-Hetzner), and create the namespace and credential Secret as documented.
+cluster and create the namespace and credential Secret as documented.
 The following commands target production explicitly through
 `~/.kube/ak3s-hetzner.yaml`. Run them yourself when you intend to deploy there.
 From your local repository root, validate and apply the manifests:

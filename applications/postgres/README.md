@@ -14,8 +14,9 @@ Your workstation needs Bash, SSH, a local checkout of this repository, and
 compatible with the cluster's Kubernetes version. On Windows, run the Bash examples
 inside WSL. Kustomize, which combines the YAML files, is included in `kubectl`.
 You do not need to copy the manifests to the VPS or install K3s, Helm, Make, Go,
-or the AK3S CLI on your workstation. The VPS must already have K3s running and an
-expandable CSI storage class. Installing a CSI driver separately may require Helm.
+or the AK3S CLI on your workstation. The VPS must already have K3s running and
+the `local-path` provisioner. This recipe uses the node's existing disk; no CSI
+driver, provider API token, or separate cloud volume is required.
 
 ## What will be installed
 
@@ -27,7 +28,7 @@ expandable CSI storage class. Installing a CSI driver separately may require Hel
 | Initial administrator | `postgres` |
 | Credential Secret | `psql-server-auth`, with a `password` key, created separately |
 | StatefulSet and pod | `psql-server` and `psql-server-0`, one replica |
-| Persistent volume claim (PVC) | `psql-server-data`, requesting `20Gi` on expandable `hcloud-volumes` |
+| Persistent volume claim (PVC) | `psql-server-data`, requesting `20Gi` on `local-path`; not an enforced limit |
 | Client Service | `psql-server`, private ClusterIP, port `5432` |
 | StatefulSet Service | `psql-server-headless`, headless Service, port `5432` |
 | CPU request | `100m`, one tenth of a CPU core |
@@ -45,9 +46,10 @@ uses `pgsql` for PostgreSQL flexible servers; this recipe keeps your requested
 `psql-` and `psqldb-` convention.
 PostgreSQL's built-in database and administrator remain named `postgres`.
 
-This is a single PostgreSQL server using a CSI-managed persistent volume. It has no
-replication, automatic failover, database TLS, or automated backups. A private
-Service is reachable from other pods with network access; it does not itself
+This is a single PostgreSQL server using a persistent directory on the node's
+disk. It has no replication, automatic failover, database TLS, or automated
+backups. A private Service is reachable from other pods with network access;
+it does not itself
 restrict access to selected applications. PostgreSQL authentication still applies.
 
 | File | Purpose |
@@ -157,9 +159,8 @@ same files. `apply -k .` reads `kustomization.yaml`; it does not apply the READM
 
 ```bash
 kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" get nodes -o wide
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" get storageclass hcloud-volumes \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" get storageclass local-path \
   -o custom-columns=NAME:.metadata.name,PROVISIONER:.provisioner,EXPANDABLE:.allowVolumeExpansion,BINDING:.volumeBindingMode,RECLAIM:.reclaimPolicy
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" get csidriver csi.hetzner.cloud
 ssh USER@VPS_ADDRESS 'systemctl is-active k3s'
 ssh USER@VPS_ADDRESS 'free -h'
 ssh -t USER@VPS_ADDRESS 'sudo df -h /var/lib/rancher/k3s'
@@ -169,26 +170,24 @@ Expect K3s to be active and the server node to be Ready. Resolve cluster failure
 before deploying the server. `kubectl` uses the VPS kubeconfig selected in
 step 1. The SSH commands inspect the VPS rather than your workstation.
 
-Expect `hcloud-volumes` to use `csi.hetzner.cloud` with `EXPANDABLE` set to `true`.
-The driver must be running and able to provision and expand volumes. AK3S installs
-`local-path` for its platform workloads; it does not install the Hetzner CSI driver.
-If the driver or class is missing, follow the
-[Hetzner CSI installation guide](https://github.com/hetznercloud/csi-driver/blob/main/docs/kubernetes/guides/quickstart.md)
-as a separate infrastructure setup step. Keep its provider API token private.
-Do not apply this recipe until the class and driver are ready.
+Expect `local-path` to use `rancher.io/local-path`, normally with
+`WaitForFirstConsumer` binding. An empty or false expansion setting is expected:
+this provisioner does not support Kubernetes PVC expansion. AK3S uses the same
+class for its platform workloads. If the class is missing, resolve the provisioner
+installation before applying; creating a StorageClass alone does not provision
+storage.
 
-On another provider, select an installed CSI storage class that supports volume
-and filesystem expansion, with `allowVolumeExpansion: true`, and change
-`storageClassName` in your local `pvc.yaml`. Verify the class and its CSI driver
-instead of the Hetzner names above. Creating a StorageClass alone does not install
-a driver. Setting `allowVolumeExpansion` on K3s's `local-path` class does not add
-resize support.
+Check that the server has enough disk and memory for PostgreSQL alongside its
+existing workloads. `20Gi` means 20 GiB, approximately 21.5 decimal GB. With
+local-path, this request does not reserve space or enforce a quota. PostgreSQL
+files can grow beyond 20 GiB into the filesystem's free space, shared with K3s,
+logs, backups stored on the node, and other workloads. Leave headroom for database
+maintenance and monitor actual disk use.
 
-Check that the VPS has enough memory for PostgreSQL alongside its existing
-workloads and that the storage provider can provision at least `20Gi`. `20Gi`
-means 20 GiB, approximately 21.5 decimal GB. Hetzner Cloud Volumes are separately
-billed block storage; the claim does not allocate 20 GiB on the VPS's root disk.
-Monitor both volume usage and the node's root disk.
+For example, a server with mirrored local NVMe disks can store PostgreSQL on its
+existing root filesystem through local-path. RAID1 mirrors the disks rather than
+adding their capacities. Hetzner Cloud CSI provisions separate Cloud Volumes; it
+does not use those local disks.
 
 Keep TCP `5432` and the local forward ports `15432` and `16443` private. Review
 both your provider firewall and host firewall; existing cluster networking and
@@ -215,10 +214,14 @@ resource names, administrator, or Secret name, use the same values in subsequent
 commands. Keep the `psql-` prefix on server resource names and update Service
 selectors, pod labels, `serviceName`, and the PVC reference together.
 
-Choose storage settings before installation. The PVC requests `20Gi` initially;
-you can later increase it using the [volume expansion steps](#expand-server-storage).
-An existing PVC's storage class cannot be changed in place. Moving from
-`local-path` requires a new PVC and a planned backup and restore.
+Choose storage settings before installation. Keep the `20Gi` local-path request;
+file growth beyond it does not require a PVC resize. See
+[storage growth and monitoring](#expand-server-storage) for future capacity needs.
+An existing PVC's storage class cannot be changed in place. If you already
+created `psql-server-data` with `hcloud-volumes` or another class, do not apply
+this as an in-place conversion or delete its PVC. Review whether it contains
+data, preserve it and its credentials, and plan a separate PVC and backup/restore
+migration. Kubernetes will reject a storage-class change on the existing PVC.
 
 Keep `replicas: 1`. Increasing this StatefulSet's replica count does not configure
 PostgreSQL replication and can create unsafe access to the shared data directory.
@@ -337,9 +340,9 @@ kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
 Expect the StatefulSet and pod to be ready, the PVC to be Bound, and both Services
 to have no external IP. The headless Service has `CLUSTER-IP` set to `None`.
 
-A CSI PVC may be Pending until a pod requests it, because its storage class can
-use `WaitForFirstConsumer`. Apply the complete directory before judging volume
-binding. The first startup can take longer while the image downloads and the
+A local-path PVC may be Pending until a pod requests it, because its storage
+class can use `WaitForFirstConsumer`. Apply the complete directory before judging
+volume binding. The first startup can take longer while the image downloads and the
 database initializes.
 
 Kubernetes applies resources individually. A failed apply or rollout can leave
@@ -413,8 +416,12 @@ between pods.
 
 ## 9. Make backups and test restoration
 
-The CSI volume survives pod replacement. It is not a database backup; deleting
-the PVC can delete the backing volume, depending on the PV's reclaim policy.
+The local-path volume survives pod replacement on the same node and normal K3s
+shutdowns and server restarts, provided the data directory and PVC remain intact.
+It does not move to another node or protect against losing the server or its
+storage. RAID mirroring is not a backup: deletion and corruption can affect both
+disks. Deleting the PVC can delete the data directory, depending on the PV's
+reclaim policy.
 A K3s datastore backup does not include PostgreSQL volume contents. Each
 application repository should document its database backup and recovery plan;
 the server operator must cover every database and the shared roles.
@@ -542,41 +549,42 @@ maintenance session.
 
 ### Expand server storage
 
-Expansion is a deliberate operator action, not automatic growth. Back up and
-test the resize on a disposable cluster first. Verify that the bound PVC uses
-the intended expandable CSI class and record the current capacity and PVC UID:
+With local-path, PostgreSQL grows as it writes files. The `20Gi` request is not
+an enforced limit or reserved allocation, so growth beyond it does not require
+changing the PVC. Increasing the request to `40Gi` does not add disk capacity;
+Kubernetes PVC expansion is unsupported for this class. Do not set
+`allowVolumeExpansion: true` on local-path to try to enable it.
+
+Monitor the filesystem that holds the volume and record the PVC's identity:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" get storageclass hcloud-volumes \
-  -o custom-columns=NAME:.metadata.name,PROVISIONER:.provisioner,EXPANDABLE:.allowVolumeExpansion
 kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   get pvc psql-server-data \
-  -o custom-columns=NAME:.metadata.name,UID:.metadata.uid,CLASS:.spec.storageClassName,REQUEST:.spec.resources.requests.storage,CAPACITY:.status.capacity.storage
-```
-
-For example, to grow from `20Gi` to `40Gi`, change your local `pvc.yaml` to
-`storage: 40Gi`, retain that override, and apply only the PVC:
-
-```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
-  apply --dry-run=server -f pvc.yaml
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications apply -f pvc.yaml
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
-  wait '--for=jsonpath={.status.capacity.storage}=40Gi' pvc/psql-server-data --timeout=600s
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
-  describe pvc psql-server-data
+  -o custom-columns=NAME:.metadata.name,UID:.metadata.uid,CLASS:.spec.storageClassName,REQUEST:.spec.resources.requests.storage
 kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
   exec psql-server-0 -- df -h /var/lib/postgresql
+ssh -t USER@VPS_ADDRESS 'sudo df -h /var/lib/rancher/k3s'
 ```
 
-Use the actual storage-class name if you customized it. The CSI driver expands
-the backing volume and filesystem; confirm the PVC capacity, unchanged UID,
-mounted filesystem size, and database queries. Some drivers require a pod restart
-for filesystem expansion. If `FileSystemResizePending` remains, follow that
-driver's instructions and schedule downtime for the single server. Investigate
-resize failures instead of deleting the PVC or recreating it. Kubernetes supports
-growing a volume, not shrinking it. Keep the larger request in future applies;
-reapplying the original `20Gi` default after expansion will fail.
+The filesystem size reported inside the pod can be much larger than `20Gi`;
+it describes the shared underlying filesystem, not space dedicated to PostgreSQL.
+Set disk-space alerts with enough headroom for writes, WAL, indexes, temporary
+files, and other workloads. A full filesystem can disrupt both PostgreSQL and K3s.
+
+When the physical filesystem is nearing capacity, plan additional storage or a
+migration before it fills. Adding a disk alone does not enlarge the existing
+filesystem. Depending on the host layout, growth may require changes to RAID,
+partitions, and the filesystem, or migration of database files to a larger disk.
+Back up and test the chosen procedure on a disposable environment first. Do not
+repartition or format an existing database disk as part of applying Kubernetes
+manifests.
+
+If you later need a separately sized volume with an enforced capacity and
+Kubernetes PVC expansion, choose a CSI driver compatible with your actual host
+and storage. Hetzner Cloud CSI is for Hetzner Cloud Servers and Cloud Volumes;
+it does not turn dedicated-server local NVMe disks into Cloud Volumes. Moving to
+a new storage class requires a separate PVC and a planned data migration. Keep
+the old PVC until restore and client cutover have been verified.
 
 ## 11. Stop or remove PostgreSQL while retaining data
 
@@ -608,9 +616,10 @@ kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
 **Do not use `kubectl delete -k .` to stop PostgreSQL.** The directory includes
 the PVC, and deleting it can delete its volume contents. Deleting namespace
 `applications` removes all resources in that namespace, including its PVCs.
-The backing volume may be deleted if its PV uses reclaim policy `Delete`; the
-Hetzner CSI class defaults to that policy. Review PV retention before removing
-the cluster and verify an independent backup before deleting data.
+The data directory may be deleted if its PV uses reclaim policy `Delete`, the
+usual local-path default. Full K3s removal also removes local-path volumes.
+Review data retention before removing the cluster and verify an independent
+backup before deleting data.
 
 ## Troubleshooting
 
@@ -632,8 +641,8 @@ Keep logs and diagnostic output private if they contain application information.
 | `CreateContainerConfigError` | The `psql-server-auth` Secret exists in `applications` and has a nonempty `password` key |
 | `ImagePullBackOff` | Pod events, outbound DNS and HTTPS, registry access, and the complete pinned image reference |
 | Pod Pending | Scheduling events, CPU and memory capacity, node taints, and PVC binding |
-| PVC Pending after apply | Installed CSI driver, storage class, provider capacity and authorization, and pod scheduling; `WaitForFirstConsumer` needs a schedulable pod |
-| PVC expansion stalls | `allowVolumeExpansion`, driver resize support, provider capacity, PVC events, and filesystem resize conditions |
+| PVC Pending after apply | Local-path provisioner, storage class, disk capacity, and pod scheduling; `WaitForFirstConsumer` needs a schedulable pod |
+| PVC size increase is rejected | Local-path does not support PVC expansion; files can already grow beyond the request into available disk space |
 | `CrashLoopBackOff` | Current and previous logs, image/data-version compatibility, volume permissions, and available disk space |
 | Pod is `OOMKilled` | Memory use and the `1Gi` limit; adjust capacity after checking server headroom |
 | Password authentication fails | The database's actual user/password; changing the Secret does not rotate an initialized password |
@@ -658,12 +667,10 @@ path in place of the production kubeconfig when following the deployment steps:
 kubectl --kubeconfig "$HOME/.kube/ak3s-wsl-test.yaml" get nodes -o wide
 ```
 
-Hetzner's CSI driver requires Hetzner Cloud infrastructure; it cannot provision
-Hetzner volumes for a WSL node. On WSL, install a test CSI driver with expansion
-support and select its class in a local manifest copy. If only `local-path` is
-available, you can use it in that disposable copy to test startup and persistence,
-but this does not validate capacity limits or volume expansion. Repeat expansion
-validation on the CSI driver you will use in production.
+The default local-path class can be used on a disposable WSL or Linux cluster.
+Verify that the mounted directory uses the intended test node's filesystem.
+These tests do not validate a storage quota, Kubernetes PVC expansion, or a
+future physical disk migration.
 
 1. Deploy, authenticate against the maintenance database `postgres`, and verify
    that no application database was created.
@@ -674,10 +681,13 @@ validation on the CSI driver you will use in production.
    `kubectl --kubeconfig "$HOME/.kube/ak3s-wsl-test.yaml" -n applications delete pod psql-server-0`.
 4. Wait for the replacement to become ready, reconnect, and verify the row remains.
 5. Reapply the directory and confirm the PVC UID and row are unchanged.
-6. On expandable CSI storage, increase the request to `40Gi` using the test
-   kubeconfig, wait for the PVC and filesystem to grow, and verify the PVC UID
-   and test row remain unchanged. Reapply the updated manifests and check again.
+6. Stop and restart K3s, then reboot only the disposable server or WSL
+   distribution. After each restart, verify PostgreSQL becomes ready with the
+   same PVC UID and test row. Follow the broader runtime guide for test-host
+   restart commands; never use production for these checks.
 7. Restore an off-server backup into a separate instance and verify its contents.
+8. Check filesystem free space and disk alerts. Do not deliberately fill the
+   node's root filesystem to test database growth.
 
 Rendered manifests and API validation do not prove database startup, filesystem
 permissions, persistence, or recovery. Record automated checks separately from
