@@ -27,6 +27,12 @@ validation. Allow TCP `5432` only from your client IPs in the provider firewall
 and host Kubernetes forwarding rules; a host INPUT rule alone may not filter
 ServiceLB traffic. Port `5432` must be free on the VPS.
 
+For Hetzner Server Auction and other Hetzner dedicated servers, use **Hetzner
+Robot → Servers → your server → Firewall**. Cloud Console firewalls apply to Cloud servers.
+If the Robot firewall is active, allow incoming IPv4 TCP destination port `5432`
+from your client IPs, with unrestricted source ports and TCP flags. Preserve
+existing rules and allow reply traffic in any outgoing filter; Robot is stateless.
+
 All TCP clients, including cluster applications, must use TLS after this update.
 Existing SCRAM passwords work unchanged; reset older MD5 passwords to SCRAM
 before updating. Changing the Kubernetes password Secret does not rotate an
@@ -73,10 +79,38 @@ Clients connect on `5432`; keep other public ports restricted in the firewall.
 The existing private Services remain available. Certificate renewal reloads
 PostgreSQL without a restart after Kubernetes projects the updated Secret.
 
-In pgAdmin, use your hostname, port `5432`, maintenance database `postgres`, your
-existing database account and password, and SSL mode **verify-full** with a trusted
-CA bundle for the issuer. Enter the hostname without `https://`. Verify your
-connection in the Query Tool:
+## 3. Connect with pgAdmin
+
+Use your hostname without `https://`, port `5432`, maintenance database `postgres`,
+and your existing database account and password. In **Properties → Parameters**,
+set the following values; use **+** to add missing entries:
+
+| Parameter | Keyword | Value |
+|---|---|---|
+| SSL mode | `sslmode` | `require` |
+| Connection timeout | `connect_timeout` | `20` |
+| SSL negotiation | `sslnegotiation` | `direct` |
+| GSS encmode | `gssencmode` | `disable` |
+| Root certificate | `sslrootcert` | Leave blank |
+
+Leave client certificate and client key blank. These settings encrypt the
+connection without requiring a local CA certificate file. `require` does not
+verify the server's certificate or hostname. For server identity verification,
+use `verify-full` with a trusted CA bundle instead.
+
+Direct TLS requires PostgreSQL 17+ on both the server and client library. Windows
+clients may try GSS/Kerberos encryption before TLS even with `sslnegotiation=direct`;
+`gssencmode=disable` avoids that negotiation and retains TLS encryption. These
+settings were verified with pgAdmin 9.18's bundled Windows client.
+
+Equivalent PostgreSQL connection string, with a placeholder hostname and no
+embedded password:
+
+```text
+host=REPLACE_WITH_POSTGRES_HOSTNAME port=5432 dbname=postgres user=postgres sslmode=require sslnegotiation=direct gssencmode=disable connect_timeout=20
+```
+
+Verify the connection in the Query Tool:
 
 ```sql
 SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid();
