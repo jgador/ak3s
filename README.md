@@ -84,6 +84,8 @@ kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -k applications/postg
 ```
 
 The YAML files stay on your workstation; PostgreSQL and its data run on the VPS.
+For direct external database connections, use the optional [public PostgreSQL overlay](applications/postgres/public/README.md)
+with a dedicated TLS certificate and firewall rules restricted to your client IPs.
 
 ## Reference
 

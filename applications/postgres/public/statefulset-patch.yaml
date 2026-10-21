@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: psql-server
+spec:
+  template:
+    metadata:
+      labels:
+        ak3s.io/postgres-access: public
+    spec:
+      containers:
+        - name: postgres
+          command: [/bin/bash, /etc/postgresql/public/start-postgres.sh]
+          volumeMounts:
+            - name: public-config
+              mountPath: /etc/postgresql/public
+              readOnly: true
+            - name: postgres-tls
+              mountPath: /etc/postgresql/tls
+              readOnly: true
+      volumes:
+        - name: public-config
+          configMap:
+            name: psql-server-public
+        - name: postgres-tls
+          secret:
+            secretName: psql-server-tls
+            # Root-owned, group-readable keys are accepted by PostgreSQL.
+            # The base pod's fsGroup gives UID 999 access without world access.
+            defaultMode: 0440

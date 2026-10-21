@@ -20,6 +20,12 @@ This deployment creates only PostgreSQL's built-in maintenance database
 and database recovery instructions. Application database provisioning is separate
 from installing or updating this server.
 
+For direct external clients, the optional [public PostgreSQL overlay](../applications/postgres/public/README.md)
+adds K3s ServiceLB on TCP `5432`, a dedicated certificate, mandatory TLS and SCRAM
+authentication, and certificate reloads. DNS and firewall rules restricted to
+client addresses are operator tasks. The private base remains the default, and
+switching access keeps the existing database and storage.
+
 The guide covers creating the namespace and password Secret from WSL, deploying
 all manifests with `kubectl apply -k`, and checking readiness and login. It assumes
 your local kubeconfig already has access to the cluster.
@@ -41,6 +47,18 @@ restart, and restoration from an off-server backup. Check disk monitoring and
 the volume's node affinity.
 These local-path checks do not validate Kubernetes PVC expansion or disk migration.
 Rendered manifests and API validation do not prove database recovery.
+
+`make test-postgres` renders the private and public deployments and runs the pinned
+PostgreSQL image in a disposable local Docker container. It checks verified TLS,
+rejected plaintext and invalid credentials, certificate rotation without a server
+restart, clean shutdown, and data persistence after another startup. It uses
+fictional credentials and temporary files under `.tmp/`, with no cluster access.
+
+Before enabling public access, also validate the overlay on a disposable K3s
+cluster: check Secret volume permissions, certificate projection and reloads,
+ServiceLB connectivity, and switching back to private access. Repeat DNS,
+certificate issuance, and effective firewall allowlist checks on the intended
+VPS as an operator; local container tests do not validate public networking.
 
 Use the broader [runtime testing guide](runtime-testing.md) when validating the
 AK3S platform itself.

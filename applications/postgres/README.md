@@ -66,8 +66,8 @@ Apply all the manifests with one command:
 kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -k applications/postgres
 ```
 
-`-k` uses `kustomization.yaml` to apply `pvc.yaml`, `service.yaml`, and
-`statefulset.yaml` in `infrastructure`, including both Services and the VPA.
+`-k` uses `kustomization.yaml` to apply the manifests in `base/` to
+`infrastructure`, including both Services and the VPA.
 You do not need to apply each file separately.
 
 Wait for PostgreSQL to become ready:
@@ -86,3 +86,12 @@ kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
 
 Exit with `\q`. Applications inside Kubernetes connect to
 `psql-server.infrastructure.svc.cluster.local:5432` using their own database accounts.
+
+## Optional public access
+
+For direct pgAdmin access through a hostname such as `psql.ak3s.ayumlabs.com`,
+follow the [public PostgreSQL guide](public/README.md). Its optional overlay adds
+a ServiceLB Service on port `5432`, a separate cert-manager certificate, mandatory
+TLS and SCRAM authentication for TCP clients, and certificate reloads. Public
+access also requires DNS and firewall rules limited to your client IPs. The
+private deployment above does not expose PostgreSQL publicly.

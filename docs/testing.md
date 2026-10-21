@@ -42,6 +42,16 @@ Validate the manual PostgreSQL manifests against a disposable cluster and check
 database startup, persistence, and backup restoration using the
 [PostgreSQL runtime checks](applications.md#runtime-validation).
 
+`make test-postgres` checks the optional public PostgreSQL deployment with
+`kubectl kustomize` and a disposable local Docker container. It requires Docker,
+kubectl, OpenSSL, Python 3 with PyYAML, and ripgrep. The local Docker socket must
+be available, and the test user must be able to assign UID/GID `999` to temporary
+files. The test pulls the pinned PostgreSQL image if it is not cached and binds
+only a random loopback port. It checks TLS enforcement and verification,
+authentication failures, certificate rotation, shutdown, and persistence; it
+does not read a kubeconfig or access a cluster. It is a separate target from
+`make verify` because it requires Docker.
+
 ## Integration checks
 
 Validate real pinned downloads and Helm rendering without a cluster:
