@@ -67,9 +67,11 @@ kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   rollout status statefulset/psql-server --timeout=300s
 ```
 
-K3s ServiceLB exposes the VPS's port `5432`. The existing private
-Services remain available. Certificate renewal reloads PostgreSQL without a
-restart after Kubernetes projects the updated Secret.
+K3s ServiceLB exposes the VPS's port `5432`. Keep NodePort allocation enabled:
+ServiceLB uses the allocated NodePort with `externalTrafficPolicy: Local`.
+Clients connect on `5432`; keep other public ports restricted in the firewall.
+The existing private Services remain available. Certificate renewal reloads
+PostgreSQL without a restart after Kubernetes projects the updated Secret.
 
 In pgAdmin, use your hostname, port `5432`, maintenance database `postgres`, your
 existing database account and password, and SSL mode **verify-full** with a trusted

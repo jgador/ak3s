@@ -32,8 +32,8 @@ metadata:
   name: psql-server-external
 spec:
   type: LoadBalancer
-  # ServiceLB forwards to the ClusterIP and does not need an extra NodePort.
-  allocateLoadBalancerNodePorts: false
+  # With Local traffic policy, K3s ServiceLB forwards to this NodePort.
+  allocateLoadBalancerNodePorts: true
   # Public traffic must reach the node running the single database replica.
   externalTrafficPolicy: Local
   selector:

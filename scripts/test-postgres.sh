@@ -55,7 +55,8 @@ assert external['spec']['selector'].items() <= statefulset['spec']['template']['
 assert external['spec']['ports'][0]['targetPort'] == server['ports'][0]['name']
 assert external['spec']['ports'][0]['port'] == 5432
 assert external['spec']['externalTrafficPolicy'] == 'Local'
-assert external['spec']['allocateLoadBalancerNodePorts'] is False
+# K3s routes Local-policy ServiceLB traffic through the allocated NodePort.
+assert external['spec'].get('allocateLoadBalancerNodePorts', True) is True
 tls = next(v for v in pod['volumes'] if v['name'] == 'postgres-tls')['secret']
 cert = next(r for r in public if r['kind'] == 'Certificate')
 assert tls['secretName'] == cert['spec']['secretName']
