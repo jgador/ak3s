@@ -20,9 +20,12 @@ This deployment creates only PostgreSQL's built-in maintenance database
 and database recovery instructions. Application database provisioning is separate
 from installing or updating this server.
 
-For direct external clients, the optional [public PostgreSQL overlay](../applications/postgres/public/README.md)
-adds K3s ServiceLB on TCP `5432`, a dedicated certificate, mandatory TLS and SCRAM
-authentication, and certificate reloads. DNS and firewall rules restricted to
+The [deployment history](../applications/postgres/revisions/README.md) preserves
+the original private manifests as revision `001`. Follow the
+[001 to 002 upgrade guide](../applications/postgres/upgrades/001-to-002.md) for
+direct external clients. Revision `002` adds K3s ServiceLB on TCP `5432`, a
+dedicated certificate, mandatory TLS and SCRAM authentication, and certificate
+reloads. DNS and firewall rules restricted to
 client addresses are operator tasks. The private base remains the default, and
 switching access keeps the existing database and storage.
 
@@ -48,10 +51,12 @@ the volume's node affinity.
 These local-path checks do not validate Kubernetes PVC expansion or disk migration.
 Rendered manifests and API validation do not prove database recovery.
 
-`make test-postgres` renders the private and public deployments and runs the pinned
-PostgreSQL image in a disposable local Docker container. It checks verified TLS,
-rejected plaintext and invalid credentials, certificate rotation without a server
-restart, clean shutdown, and data persistence after another startup. It uses
+`make test-postgres` renders both revisions and runs the pinned PostgreSQL image
+in a disposable local Docker container. It initializes revision `001`, then
+checks the upgrade to `002` with existing data, roles, and passwords. It also
+checks verified TLS, rejected plaintext and invalid credentials, certificate
+rotation without a server restart, clean shutdown, another startup, and rollback
+to revision `001`. It uses
 fictional credentials and temporary files under `.tmp/`, with no cluster access.
 
 Before enabling public access, also validate the overlay on a disposable K3s

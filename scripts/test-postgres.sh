@@ -28,8 +28,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 # Rendering is a local operation; these commands never open a kubeconfig.
-kubectl kustomize applications/postgres > "$test_dir/private.yaml"
-kubectl kustomize applications/postgres/public > "$test_dir/public.yaml"
+(cd applications/postgres/revisions/001-private && sha256sum -c checksums.sha256)
+kubectl kustomize applications/postgres/revisions/001-private > "$test_dir/private.yaml"
+kubectl kustomize applications/postgres/revisions/002-public-tls > "$test_dir/public.yaml"
+kubectl kustomize applications/postgres > "$test_dir/private-alias.yaml"
+kubectl kustomize applications/postgres/public > "$test_dir/public-alias.yaml"
 image=$(python3 - "$test_dir" <<'PY'
 import pathlib
 import sys
@@ -38,6 +41,8 @@ import yaml
 root = pathlib.Path(sys.argv[1])
 private = list(yaml.safe_load_all((root / 'private.yaml').read_text()))
 public = list(yaml.safe_load_all((root / 'public.yaml').read_text()))
+assert private == list(yaml.safe_load_all((root / 'private-alias.yaml').read_text()))
+assert public == list(yaml.safe_load_all((root / 'public-alias.yaml').read_text()))
 assert all(r['spec']['type'] == 'ClusterIP' if 'type' in r['spec'] else True
            for r in private if r['kind'] == 'Service')
 assert not any(r['kind'] == 'Certificate' for r in private)
@@ -56,6 +61,7 @@ for kind in ('PersistentVolumeClaim', 'StatefulSet', 'VerticalPodAutoscaler'):
     else:
         assert before == after
 statefulset = next(r for r in public if r['kind'] == 'StatefulSet')
+assert statefulset['metadata']['annotations']['ak3s.io/postgres-revision'] == '002'
 pod = statefulset['spec']['template']['spec']
 server = pod['containers'][0]
 external = next(r for r in public if r['kind'] == 'Service' and r['metadata']['name'] == 'psql-server-external')
@@ -103,27 +109,39 @@ ln -s ..data/tls.key "$test_dir/tls/tls.key"
 chmod 0755 "$test_dir" "$test_dir/config" "$test_dir/tls"
 chmod 0644 "$test_dir/config"/* "$test_dir/ca.crt"
 chown 999:999 "$test_dir/data"
+data_dir="$test_dir/data"
 
 # All credentials below are fictional and restricted to this disposable server.
 start_server() {
+  local mode=$1 initialization_password=fictional-test-password connection
+  local -a launch=("$image" postgres)
+  connection='host=127.0.0.1 user=postgres dbname=postgres sslmode=disable'
+  if [[ "$mode" == public ]]; then
+    launch=(--entrypoint /bin/bash "$image" /etc/postgresql/public/start-postgres.sh)
+    connection='host=psql.ak3s.example.com hostaddr=127.0.0.1 user=postgres dbname=postgres sslmode=verify-full sslrootcert=/test-ca.crt'
+    # Existing data must retain its password even if initialization settings differ.
+    if [[ -f "$data_dir/18/docker/PG_VERSION" ]]; then
+      initialization_password=fictional-unused-init-password
+    fi
+  fi
   docker_local run -d --name "$container" \
     --user 999:999 --cap-drop ALL --security-opt no-new-privileges \
     --publish 127.0.0.1::5432 --stop-timeout 15 \
     --env POSTGRES_USER=postgres --env POSTGRES_DB=postgres \
-    --env POSTGRES_PASSWORD=fictional-test-password \
+    --env "POSTGRES_PASSWORD=$initialization_password" \
     --env PGDATA=/var/lib/postgresql/18/docker \
     --env POSTGRES_TLS_RELOAD_INTERVAL=1 \
-    --mount "type=bind,src=$test_dir/data,dst=/var/lib/postgresql" \
+    --mount "type=bind,src=$data_dir,dst=/var/lib/postgresql" \
     --mount "type=bind,src=$test_dir/config,dst=/etc/postgresql/public,readonly" \
     --mount "type=bind,src=$test_dir/tls,dst=/etc/postgresql/tls,readonly" \
     --mount "type=bind,src=$test_dir/ca.crt,dst=/test-ca.crt,readonly" \
-    --entrypoint /bin/bash "$image" /etc/postgresql/public/start-postgres.sh >/dev/null
+    "${launch[@]}" >/dev/null
   local attempt
   for ((attempt = 0; attempt < 60; attempt++)); do
     if docker_local exec "$container" psql -U postgres -d postgres -Atc 'SELECT 1' >/dev/null 2>&1; then
       # Initialization's temporary server also has a local socket. Wait for TCP.
       if docker_local exec --env PGPASSWORD=fictional-test-password "$container" \
-        psql 'host=psql.ak3s.example.com hostaddr=127.0.0.1 user=postgres dbname=postgres sslmode=verify-full sslrootcert=/test-ca.crt' \
+        psql "$connection" \
         -Atc 'SELECT 1' >/dev/null 2>&1; then
         return
       fi
@@ -133,6 +151,16 @@ start_server() {
   docker_local logs "$container" >&2
   printf 'PostgreSQL did not become ready.\n' >&2
   exit 1
+}
+private_query() {
+  docker_local exec --env PGPASSWORD=fictional-test-password "$container" \
+    psql 'host=127.0.0.1 user=postgres dbname=postgres sslmode=disable' \
+    -v ON_ERROR_STOP=1 -Atc "$1"
+}
+stop_server() {
+  docker_local stop "$container" >/dev/null
+  [[ "$(docker_local inspect --format '{{.State.ExitCode}}' "$container")" == 0 ]]
+  docker_local rm "$container" >/dev/null
 }
 query() {
   docker_local exec --env PGPASSWORD=fictional-test-password "$container" \
@@ -152,7 +180,21 @@ reject_connection() {
   fi
 }
 
-start_server
+start_server private
+[[ "$(private_query 'SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()')" == f ]]
+private_query "CREATE TABLE tls_persistence (value text); INSERT INTO tls_persistence VALUES ('preserved');" >/dev/null
+private_query "CREATE ROLE sample_client LOGIN PASSWORD 'fictional-client-password'; GRANT SELECT ON tls_persistence TO sample_client;" >/dev/null
+identity=$(private_query 'SELECT system_identifier FROM pg_control_system()')
+verifier=$(private_query "SELECT rolpassword FROM pg_authid WHERE rolname = 'postgres'")
+stop_server
+start_server public
+[[ "$(query 'SELECT system_identifier FROM pg_control_system()')" == "$identity" ]]
+[[ "$(query "SELECT rolpassword FROM pg_authid WHERE rolname = 'postgres'")" == "$verifier" ]]
+[[ "$(query 'SELECT value FROM tls_persistence')" == preserved ]]
+[[ "$(docker_local exec --env PGPASSWORD=fictional-client-password "$container" \
+  psql 'host=psql.ak3s.example.com hostaddr=127.0.0.1 user=sample_client dbname=postgres sslmode=verify-full sslrootcert=/test-ca.crt' \
+  -Atc 'SELECT value FROM tls_persistence')" == preserved ]]
+printf 'Revision 001 to 002 preserved database identity, data, roles, and passwords.\n'
 [[ "$(query 'SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()')" == t ]]
 [[ "$(query "SELECT rolpassword LIKE 'SCRAM-SHA-256%' FROM pg_authid WHERE rolname = 'postgres'")" == t ]]
 reject_connection fictional-test-password \
@@ -163,7 +205,6 @@ reject_connection fictional-test-password \
   'host=wrong.example.com hostaddr=127.0.0.1 user=postgres dbname=postgres sslmode=verify-full sslrootcert=/test-ca.crt' 'does not match host name'
 printf 'TLS, hostname verification, SCRAM, and rejected connections passed.\n'
 
-query 'CREATE TABLE tls_persistence (value text); INSERT INTO tls_persistence VALUES ('"'preserved'"');' >/dev/null
 started=$(query 'SELECT pg_postmaster_start_time()')
 port=$(docker_local port "$container" 5432/tcp)
 served_serial() {
@@ -187,11 +228,25 @@ done
 [[ "$(query 'SELECT pg_postmaster_start_time()')" == "$started" ]]
 printf 'Certificate rotation passed without restarting PostgreSQL.\n'
 
-docker_local stop "$container" >/dev/null
-[[ "$(docker_local inspect --format '{{.State.ExitCode}}' "$container")" == 0 ]]
-docker_local rm "$container" >/dev/null
-start_server
+stop_server
+start_server public
 [[ "$(query 'SELECT value FROM tls_persistence')" == preserved ]]
-docker_local stop "$container" >/dev/null
-[[ "$(docker_local inspect --format '{{.State.ExitCode}}' "$container")" == 0 ]]
+stop_server
 printf 'Clean shutdown, repeated startup, and persistence passed.\n'
+
+start_server private
+[[ "$(private_query 'SELECT value FROM tls_persistence')" == preserved ]]
+[[ "$(private_query 'SELECT system_identifier FROM pg_control_system()')" == "$identity" ]]
+[[ "$(private_query "SELECT rolpassword FROM pg_authid WHERE rolname = 'postgres'")" == "$verifier" ]]
+[[ "$(private_query 'SHOW ssl')" == off ]]
+stop_server
+printf 'Rollback to revision 001 preserved database identity, data, and passwords.\n'
+
+# Retain coverage of the TLS launcher's first startup with an empty data volume.
+data_dir="$test_dir/fresh-data"
+mkdir "$data_dir"
+chown 999:999 "$data_dir"
+start_server public
+[[ "$(query 'SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()')" == t ]]
+stop_server
+printf 'Revision 002 initialization with an empty data volume passed.\n'

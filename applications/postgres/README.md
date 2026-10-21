@@ -1,5 +1,11 @@
 # Set up PostgreSQL from WSL
 
+This is the first-installation guide for **revision 001**, the private deployment
+already merged into `master`. See the [deployment history](revisions/README.md)
+for numbered revisions. If the original manifests are already applied, retain
+the existing Secret and PVC and start with the checks in the
+[001 to 002 upgrade guide](upgrades/001-to-002.md) to add public TLS access.
+
 Run these commands in **WSL Bash from the repository root**. You need `kubectl`
 and a working `~/.kube/ak3s-hetzner.yaml` with access to the live production cluster.
 
@@ -66,7 +72,7 @@ Apply all the manifests with one command:
 kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -k applications/postgres
 ```
 
-`-k` uses `kustomization.yaml` to apply the manifests in `base/` to
+`-k` uses `kustomization.yaml` to apply `revisions/001-private/` to
 `infrastructure`, including both Services and the VPA.
 You do not need to apply each file separately.
 
@@ -90,7 +96,7 @@ Exit with `\q`. Applications inside Kubernetes connect to
 ## Optional public access
 
 For direct pgAdmin access through a hostname such as `psql.ak3s.ayumlabs.com`,
-follow the [public PostgreSQL guide](public/README.md). Its optional overlay adds
+follow the [001 to 002 upgrade guide](upgrades/001-to-002.md). Revision 002 adds
 a ServiceLB Service on port `5432`, a separate cert-manager certificate, mandatory
 TLS and SCRAM authentication for TCP clients, and certificate reloads. Public
 access also requires DNS and firewall rules limited to your client IPs. The
