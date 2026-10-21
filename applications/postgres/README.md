@@ -3,10 +3,9 @@
 Run these commands in **WSL Bash from the repository root**. You need `kubectl`
 and a working `~/.kube/ak3s-hetzner.yaml` with access to the live production cluster.
 
-The cluster needs the `local-path` storage provisioner and compatible VPA CRDs
-and controllers. The manifest uses VPA `InPlace`, requiring VPA 1.7 or later with
-`--feature-gates=InPlace=true` on the updater and admission controller. These
-manifests configure VPA; they do not install it.
+The cluster needs the `local-path` storage provisioner. Before deploying, follow
+[Install VPA from WSL](../../docs/vpa.md) once per cluster. PostgreSQL uses VPA
+`InPlace`; its manifest does not install the required CRDs and controllers.
 
 ## 1. Check access and create the namespace
 
