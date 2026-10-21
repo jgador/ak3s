@@ -2,10 +2,11 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: psql-server-tls
+  namespace: infrastructure
 spec:
   secretName: psql-server-tls
   dnsNames:
-    - psql.ak3s.example.com
+    - REPLACE_WITH_POSTGRES_HOSTNAME
   issuerRef:
     name: letsencrypt-production
     kind: ClusterIssuer

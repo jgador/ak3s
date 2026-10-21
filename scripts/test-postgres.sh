@@ -27,41 +27,27 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Rendering is a local operation; these commands never open a kubeconfig.
-(cd applications/postgres/revisions/001-private && sha256sum -c checksums.sha256)
-kubectl kustomize applications/postgres/revisions/001-private > "$test_dir/private.yaml"
-kubectl kustomize applications/postgres/revisions/002-public-tls > "$test_dir/public.yaml"
-kubectl kustomize applications/postgres > "$test_dir/private-alias.yaml"
-kubectl kustomize applications/postgres/public > "$test_dir/public-alias.yaml"
+# Rendering is a local operation; this command never opens a kubeconfig.
+kubectl kustomize applications/postgres > "$test_dir/rendered.yaml"
 image=$(python3 - "$test_dir" <<'PY'
 import pathlib
 import sys
 import yaml
 
 root = pathlib.Path(sys.argv[1])
-private = list(yaml.safe_load_all((root / 'private.yaml').read_text()))
-public = list(yaml.safe_load_all((root / 'public.yaml').read_text()))
-assert private == list(yaml.safe_load_all((root / 'private-alias.yaml').read_text()))
-assert public == list(yaml.safe_load_all((root / 'public-alias.yaml').read_text()))
-assert all(r['spec']['type'] == 'ClusterIP' if 'type' in r['spec'] else True
-           for r in private if r['kind'] == 'Service')
-assert not any(r['kind'] == 'Certificate' for r in private)
+public = list(yaml.safe_load_all((root / 'rendered.yaml').read_text()))
 assert all(r['metadata']['namespace'] == 'infrastructure' for r in public)
-private_ids = {(r['kind'], r['metadata']['name']) for r in private}
-assert private_ids <= {(r['kind'], r['metadata']['name']) for r in public}
-for kind in ('PersistentVolumeClaim', 'StatefulSet', 'VerticalPodAutoscaler'):
-    before = next(r for r in private if r['kind'] == kind)
-    after = next(r for r in public if r['kind'] == kind)
-    if kind == 'StatefulSet':
-        # Switching access must retain the same database identity and storage.
-        assert before['spec']['serviceName'] == after['spec']['serviceName']
-        assert before['spec']['selector'] == after['spec']['selector']
-        assert before['spec']['template']['spec']['containers'][0]['env'] == after['spec']['template']['spec']['containers'][0]['env']
-        assert before['spec']['template']['spec']['volumes'][0] == next(v for v in after['spec']['template']['spec']['volumes'] if v['name'] == 'data')
-    else:
-        assert before == after
 statefulset = next(r for r in public if r['kind'] == 'StatefulSet')
-assert statefulset['metadata']['annotations']['ak3s.io/postgres-revision'] == '002'
+assert statefulset['metadata']['name'] == 'psql-server'
+assert statefulset['spec']['serviceName'] == 'psql-server-headless'
+assert statefulset['spec']['selector']['matchLabels'] == {
+    'app.kubernetes.io/name': 'postgres',
+    'app.kubernetes.io/instance': 'psql-server',
+}
+pvc = next(r for r in public if r['kind'] == 'PersistentVolumeClaim')
+assert pvc['metadata']['name'] == 'psql-server-data'
+assert pvc['spec']['storageClassName'] == 'local-path'
+assert pvc['spec']['resources']['requests']['storage'] == '20Gi'
 pod = statefulset['spec']['template']['spec']
 server = pod['containers'][0]
 external = next(r for r in public if r['kind'] == 'Service' and r['metadata']['name'] == 'psql-server-external')
@@ -74,7 +60,7 @@ tls = next(v for v in pod['volumes'] if v['name'] == 'postgres-tls')['secret']
 cert = next(r for r in public if r['kind'] == 'Certificate')
 assert tls['secretName'] == cert['spec']['secretName']
 assert tls['defaultMode'] == 0o440
-config_name = next(v for v in pod['volumes'] if v['name'] == 'public-config')['configMap']['name']
+config_name = next(v for v in pod['volumes'] if v['name'] == 'postgres-config')['configMap']['name']
 config = next(r for r in public if r['kind'] == 'ConfigMap' and r['metadata']['name'] == config_name)
 (root / 'config').mkdir()
 for name, data in config['data'].items():
@@ -117,7 +103,7 @@ start_server() {
   local -a launch=("$image" postgres)
   connection='host=127.0.0.1 user=postgres dbname=postgres sslmode=disable'
   if [[ "$mode" == public ]]; then
-    launch=(--entrypoint /bin/bash "$image" /etc/postgresql/public/start-postgres.sh)
+    launch=(--entrypoint /bin/bash "$image" /etc/postgresql/config/start-postgres.sh)
     connection='host=psql.ak3s.example.com hostaddr=127.0.0.1 user=postgres dbname=postgres sslmode=verify-full sslrootcert=/test-ca.crt'
     # Existing data must retain its password even if initialization settings differ.
     if [[ -f "$data_dir/18/docker/PG_VERSION" ]]; then
@@ -132,7 +118,7 @@ start_server() {
     --env PGDATA=/var/lib/postgresql/18/docker \
     --env POSTGRES_TLS_RELOAD_INTERVAL=1 \
     --mount "type=bind,src=$data_dir,dst=/var/lib/postgresql" \
-    --mount "type=bind,src=$test_dir/config,dst=/etc/postgresql/public,readonly" \
+    --mount "type=bind,src=$test_dir/config,dst=/etc/postgresql/config,readonly" \
     --mount "type=bind,src=$test_dir/tls,dst=/etc/postgresql/tls,readonly" \
     --mount "type=bind,src=$test_dir/ca.crt,dst=/test-ca.crt,readonly" \
     "${launch[@]}" >/dev/null
@@ -194,7 +180,7 @@ start_server public
 [[ "$(docker_local exec --env PGPASSWORD=fictional-client-password "$container" \
   psql 'host=psql.ak3s.example.com hostaddr=127.0.0.1 user=sample_client dbname=postgres sslmode=verify-full sslrootcert=/test-ca.crt' \
   -Atc 'SELECT value FROM tls_persistence')" == preserved ]]
-printf 'Revision 001 to 002 preserved database identity, data, roles, and passwords.\n'
+printf 'TLS update preserved database identity, data, roles, and passwords.\n'
 [[ "$(query 'SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()')" == t ]]
 [[ "$(query "SELECT rolpassword LIKE 'SCRAM-SHA-256%' FROM pg_authid WHERE rolname = 'postgres'")" == t ]]
 reject_connection fictional-test-password \
@@ -240,7 +226,7 @@ start_server private
 [[ "$(private_query "SELECT rolpassword FROM pg_authid WHERE rolname = 'postgres'")" == "$verifier" ]]
 [[ "$(private_query 'SHOW ssl')" == off ]]
 stop_server
-printf 'Rollback to revision 001 preserved database identity, data, and passwords.\n'
+printf 'Previous launch configuration preserved database identity, data, and passwords.\n'
 
 # Retain coverage of the TLS launcher's first startup with an empty data volume.
 data_dir="$test_dir/fresh-data"
@@ -249,4 +235,4 @@ chown 999:999 "$data_dir"
 start_server public
 [[ "$(query 'SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()')" == t ]]
 stop_server
-printf 'Revision 002 initialization with an empty data volume passed.\n'
+printf 'TLS initialization with an empty data volume passed.\n'

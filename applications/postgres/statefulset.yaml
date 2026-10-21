@@ -14,6 +14,7 @@ spec:
       labels:
         app.kubernetes.io/name: postgres
         app.kubernetes.io/instance: psql-server
+        ak3s.io/postgres-access: public
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 60
@@ -27,6 +28,7 @@ spec:
       containers:
         - name: postgres
           image: docker.io/library/postgres:18.6-bookworm@sha256:afc7e2d441324c0388fa80c3d24f733b4194a4eb7f47dd8ee2b08eb1a24a647c
+          command: [/bin/bash, /etc/postgresql/config/start-postgres.sh]
           ports:
             - name: postgres
               containerPort: 5432
@@ -80,10 +82,24 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql
+            - name: postgres-config
+              mountPath: /etc/postgresql/config
+              readOnly: true
+            - name: postgres-tls
+              mountPath: /etc/postgresql/tls
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: psql-server-data
+        - name: postgres-config
+          configMap:
+            name: psql-server-config
+        - name: postgres-tls
+          secret:
+            secretName: psql-server-tls
+            # Root-owned keys are readable by the pod's group 999.
+            defaultMode: 0440
 ---
 # Requires the VPA CRDs and controllers to be installed before deployment.
 # InPlace requires VPA 1.7+ with --feature-gates=InPlace=true on both the

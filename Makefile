@@ -34,8 +34,7 @@ verify: test
 	test -z "$$($(GO) fmt ./...)"
 	bash -n install.sh
 	for script in scripts/*.sh scripts/lib/*.sh; do bash -n "$$script" || exit; done
-	for script in applications/postgres/revisions/*/*.sh; do bash -n "$$script" || exit; done
-	cd applications/postgres/revisions/001-private && sha256sum -c checksums.sha256
+	bash -n applications/postgres/start-postgres.sh
 	sh -n .githooks/pre-commit
 	$(MAKE) test-release
 	$(MAKE) test-install-local

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 tls_dir=${POSTGRES_TLS_DIR:-/etc/postgresql/tls}
-config_dir=${POSTGRES_PUBLIC_CONFIG_DIR:-/etc/postgresql/public}
+config_dir=${POSTGRES_CONFIG_DIR:-/etc/postgresql/config}
 reload_interval=${POSTGRES_TLS_RELOAD_INTERVAL:-30}
 if [[ ! "$reload_interval" =~ ^[1-9][0-9]*$ ]]; then
   printf 'POSTGRES_TLS_RELOAD_INTERVAL must be a positive integer.\n' >&2
