@@ -25,9 +25,12 @@ kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" create namespace infrastruc
 
 ## 2. Set the administrator password
 
-For the first installation, run this block and enter your chosen password. It
-creates the `psql-server-auth` Secret without putting the password in shell history
-or command arguments, then removes the private temporary file.
+For the first installation, replace `REPLACE_WITH_YOUR_PASSWORD` in the block below
+with your chosen password, then run it. Keep the single quotes; if the password
+contains a single quote, use `'\''` for that character inside the quoted value.
+The block creates the `psql-server-auth` Secret and removes the private temporary
+file. Pasting a password into a command can save it in shell history; keep the
+edited block private and do not save it in this repository.
 
 ```bash
 (
@@ -39,9 +42,11 @@ or command arguments, then removes the private temporary file.
   trap 'rm -f -- "$postgres_password_file"' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  read -r -s -p 'PostgreSQL administrator password: ' postgres_password
-  printf '\n'
-  test -n "$postgres_password"
+  postgres_password='REPLACE_WITH_YOUR_PASSWORD'
+  if [[ -z "$postgres_password" || "$postgres_password" == 'REPLACE_WITH_YOUR_PASSWORD' ]]; then
+    printf 'Replace the password placeholder before running this block.\n' >&2
+    exit 1
+  fi
   printf '%s' "$postgres_password" > "$postgres_password_file"
   unset postgres_password
   kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
