@@ -49,11 +49,20 @@ spec:
             capabilities:
               drop: [ALL]
           resources:
+            # Practical startup budget, not an official hardware minimum:
+            # https://www.postgresql.org/docs/18/runtime-config-resource.html
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 500m
+              memory: 512Mi
+            # Fixed limits are four times the initial requests.
             limits:
-              memory: 1Gi
+              cpu: "2"
+              memory: 2Gi
+          resizePolicy:
+            - resourceName: cpu
+              restartPolicy: NotRequired
+            - resourceName: memory
+              restartPolicy: NotRequired
           startupProbe:
             exec:
               command: [sh, -c, 'exec pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
@@ -75,3 +84,34 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: psql-server-data
+---
+# Requires the VPA CRDs and controllers to be installed before deployment.
+# InPlace requires VPA 1.7+ with --feature-gates=InPlace=true on both the
+# updater and admission controller. This mode is alpha in VPA 1.8.
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: psql-server
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: psql-server
+  updatePolicy:
+    # Defer unsupported resizes instead of evicting the database Pod.
+    updateMode: InPlace
+    # Allow updates for this single replica; this is not an availability guarantee.
+    minReplicas: 1
+  resourcePolicy:
+    containerPolicies:
+      - containerName: postgres
+        controlledResources: [cpu, memory]
+        # Keep limits fixed so VPA cannot lower the memory limit.
+        controlledValues: RequestsOnly
+        # Keep request caps below limits to preserve Burstable QoS during resize.
+        minAllowed:
+          cpu: 500m
+          memory: 512Mi
+        maxAllowed:
+          cpu: 1500m
+          memory: 1536Mi

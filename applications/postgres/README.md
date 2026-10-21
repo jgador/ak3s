@@ -18,11 +18,19 @@ or the AK3S CLI on your workstation. The VPS must already have K3s running and
 the `local-path` provisioner. This recipe uses the node's existing disk; no CSI
 driver, provider API token, or separate cloud volume is required.
 
+The cluster also needs compatible VPA CRDs and controllers before applying these
+manifests. `InPlace` mode requires Kubernetes 1.33 or later and VPA 1.7 or later,
+with `--feature-gates=InPlace=true` enabled on the VPA updater and admission
+controller. Choose a VPA release compatible with your Kubernetes version.
+`InPlace` is alpha in VPA 1.8; see the
+[VPA feature documentation](https://github.com/kubernetes/autoscaler/blob/vertical-pod-autoscaler-1.8.0/vertical-pod-autoscaler/docs/features.md#eviction-free-in-place-updates-inplace).
+These manifests configure VPA for PostgreSQL; they do not install VPA itself.
+
 ## What will be installed
 
 | Resource or setting | Default |
 | --- | --- |
-| Namespace | `applications`, created separately |
+| Namespace | `infrastructure`, created separately |
 | PostgreSQL image | Official PostgreSQL `18.6-bookworm`, pinned by digest |
 | Built-in maintenance database | `postgres`; no application database is created |
 | Initial administrator | `postgres` |
@@ -31,8 +39,26 @@ driver, provider API token, or separate cloud volume is required.
 | Persistent volume claim (PVC) | `psql-server-data`, requesting `20Gi` on `local-path`; not an enforced limit |
 | Client Service | `psql-server`, private ClusterIP, port `5432` |
 | StatefulSet Service | `psql-server-headless`, headless Service, port `5432` |
-| CPU request | `100m`, one tenth of a CPU core |
-| Memory | `256Mi` requested, `1Gi` limit |
+| Initial CPU request | `500m`, half a CPU core |
+| Initial memory request | `512Mi` |
+| Fixed container limits | `2` CPU cores and `2Gi` memory, four times the initial requests |
+| VPA request range | CPU `500m`–`1500m`; memory `512Mi`–`1536Mi` |
+| VPA update policy | `InPlace`, `RequestsOnly`, `minReplicas: 1` |
+
+The initial requests are a practical startup budget, not published hardware
+minimums. PostgreSQL documents
+[resource configuration defaults](https://www.postgresql.org/docs/18/runtime-config-resource.html),
+but sizing depends on queries, connections, and maintenance. Validate this budget
+with representative workloads on a disposable cluster.
+
+VPA adjusts requests and leaves the container limits fixed. Request caps stay
+below the limits to preserve Burstable QoS during in-place resizing. The CPU
+limit can cause throttling; the memory limit can cause an out-of-memory kill.
+`InPlace` defers resizes that cannot be applied rather than evicting the database
+Pod. `minReplicas: 1` allows updates for the single replica; it does not guarantee
+availability. The resize policies avoid intentional container restarts, but
+crashes, memory exhaustion, node failures, and StatefulSet template updates can
+still interrupt connections. VPA does not tune PostgreSQL's memory settings.
 
 The image supports Linux amd64 and arm64. Data mounts at `/var/lib/postgresql`,
 with database files under `/var/lib/postgresql/18/docker`, following the official
@@ -57,7 +83,7 @@ restrict access to selected applications. PostgreSQL authentication still applie
 | [kustomization.yaml](kustomization.yaml) | Lists the manifests and assigns their namespace |
 | [pvc.yaml](pvc.yaml) | Requests persistent storage |
 | [service.yaml](service.yaml) | Defines the client and headless Services |
-| [statefulset.yaml](statefulset.yaml) | Defines PostgreSQL, credentials, storage mounts, and health checks |
+| [statefulset.yaml](statefulset.yaml) | Defines PostgreSQL, credentials, storage mounts, health checks, and its VPA |
 
 The namespace and password Secret are deliberately created separately. There are
 no password values in these files.
@@ -207,6 +233,7 @@ operator changes when updating it.
 | Initial administrator name | `statefulset.yaml`: `POSTGRES_USER` |
 | Credential Secret name | `statefulset.yaml`: `secretKeyRef.name` |
 | CPU and memory | `statefulset.yaml`: `resources` |
+| VPA request bounds | `statefulset.yaml`: `resourcePolicy.containerPolicies` |
 | Namespace | `kustomization.yaml`: `namespace` |
 
 The instructions below use the defaults. If you change the namespace, server
@@ -241,14 +268,14 @@ users or change the password stored by PostgreSQL.
 Create the namespace, or retain it if it already exists:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" create namespace applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" create namespace infrastructure \
   --dry-run=client -o yaml | kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -f -
 ```
 
 Check for existing workloads before using these resource names:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   get statefulsets,pods,pvc,services
 ```
 
@@ -281,7 +308,7 @@ password file.
   test -n "$postgres_password"
   printf '%s' "$postgres_password" > "$postgres_password_file"
   unset postgres_password
-  kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+  kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
     create secret generic psql-server-auth --from-file=password="$postgres_password_file"
 )
 ```
@@ -294,7 +321,7 @@ base64 encoding does not make a password confidential.
 Verify that the Secret exists without printing its contents:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   get secret psql-server-auth
 ```
 
@@ -307,7 +334,7 @@ kubectl kustomize .
 kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply --dry-run=server -k .
 ```
 
-The first command renders the four resources without contacting the cluster.
+The first command renders the five resources without contacting the cluster.
 Check the namespace, image, credential reference, and storage settings. The second
 validates the resources against the Kubernetes API without saving them. It does
 not prove that the database can start or that the disk has sufficient capacity.
@@ -329,11 +356,11 @@ Run each command separately. Stop and investigate if one fails:
 
 ```bash
 kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -k .
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   rollout status statefulset/psql-server --timeout=300s
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   wait '--for=jsonpath={.status.phase}=Bound' pvc/psql-server-data --timeout=180s
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   get statefulset/psql-server pod/psql-server-0 pvc/psql-server-data service/psql-server service/psql-server-headless
 ```
 
@@ -354,7 +381,7 @@ the same manifests updates the same named resources.
 Use the PostgreSQL client already in the database container:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   exec -it psql-server-0 -- psql -h 127.0.0.1 -U postgres -d postgres -W
 ```
 
@@ -371,7 +398,7 @@ Applications running inside Kubernetes use:
 
 | Connection field | Value |
 | --- | --- |
-| Host | `psql-server.applications.svc.cluster.local` |
+| Host | `psql-server.infrastructure.svc.cluster.local` |
 | Port | `5432` |
 | Database | `psqldb-<application>`, provisioned by the application repository |
 | User and password | A separate application account |
@@ -391,7 +418,7 @@ In a **local terminal**, start a loopback-only Kubernetes port-forward using the
 explicit production kubeconfig:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   port-forward --address 127.0.0.1 service/psql-server 15432:5432
 ```
 
@@ -438,7 +465,7 @@ unset postgres_backup_file
 read -r -p 'Existing application database (for example, psqldb-example): ' postgres_database
 if [[ -n "$postgres_database" ]]; then
   postgres_backup_file="$HOME/private-backups/postgres/psql-server-$(date -u +%Y%m%dT%H%M%SZ).dump"
-  kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+  kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
     exec psql-server-0 -- pg_dump -U postgres -d "$postgres_database" --format=custom > "$postgres_backup_file"
 else
   printf 'Enter the name of an existing database.\n' >&2
@@ -454,7 +481,7 @@ authentication configuration.
 Check that PostgreSQL can read the archive:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   exec -i psql-server-0 -- pg_restore --list < "$postgres_backup_file"
 ```
 
@@ -464,7 +491,7 @@ roles and their settings, also save globals privately:
 
 ```bash
 postgres_roles_file="${postgres_backup_file%.dump}-roles.sql"
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   exec psql-server-0 -- pg_dumpall -U postgres --globals-only > "$postgres_roles_file"
 ```
 
@@ -489,9 +516,9 @@ Then create an empty disposable `psqldb-restore-check` database and stream the
 local archive into it. This database exists only for the recovery test:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/restore-test-k3s.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/restore-test-k3s.yaml" -n infrastructure \
   exec psql-server-0 -- createdb -U postgres psqldb-restore-check
-kubectl --kubeconfig "$HOME/.kube/restore-test-k3s.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/restore-test-k3s.yaml" -n infrastructure \
   exec -i psql-server-0 -- pg_restore -U postgres -d psqldb-restore-check \
   --no-owner --no-acl --exit-on-error < "$HOME/private-backups/postgres/psql-server-YYYYMMDDTHHMMSSZ.dump"
 ```
@@ -533,7 +560,7 @@ the explicit production kubeconfig:
   test -n "$postgres_password"
   printf '%s' "$postgres_password" > "$postgres_password_file"
   unset postgres_password
-  kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+  kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
     create secret generic psql-server-auth --from-file=password="$postgres_password_file" \
     --dry-run=client -o yaml | \
     kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -f -
@@ -558,10 +585,10 @@ Kubernetes PVC expansion is unsupported for this class. Do not set
 Monitor the filesystem that holds the volume and record the PVC's identity:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   get pvc psql-server-data \
   -o custom-columns=NAME:.metadata.name,UID:.metadata.uid,CLASS:.spec.storageClassName,REQUEST:.spec.resources.requests.storage
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   exec psql-server-0 -- df -h /var/lib/postgresql
 ssh -t USER@VPS_ADDRESS 'sudo df -h /var/lib/rancher/k3s'
 ```
@@ -591,16 +618,16 @@ the old PVC until restore and client cutover have been verified.
 To temporarily stop the database:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   scale statefulset/psql-server --replicas=0
 ```
 
 To start it again:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   scale statefulset/psql-server --replicas=1
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   rollout status statefulset/psql-server --timeout=300s
 ```
 
@@ -609,13 +636,13 @@ replica count. To remove the workload and Services while retaining the PVC and
 Secret:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   delete statefulset/psql-server service/psql-server service/psql-server-headless
 ```
 
 **Do not use `kubectl delete -k .` to stop PostgreSQL.** The directory includes
 the PVC, and deleting it can delete its volume contents. Deleting namespace
-`applications` removes all resources in that namespace, including its PVCs.
+`infrastructure` removes all resources in that namespace, including its PVCs.
 The data directory may be deleted if its PV uses reclaim policy `Delete`, the
 usual local-path default. Full K3s removal also removes local-path volumes.
 Review data retention before removing the cluster and verify an independent
@@ -626,10 +653,10 @@ backup before deleting data.
 Run these on your workstation with the explicit production kubeconfig:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications describe pod psql-server-0
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications logs psql-server-0 --tail=100
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications describe pvc psql-server-data
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure describe pod psql-server-0
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure logs psql-server-0 --tail=100
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure describe pvc psql-server-data
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   get events --sort-by=.metadata.creationTimestamp
 ```
 
@@ -638,13 +665,15 @@ Keep logs and diagnostic output private if they contain application information.
 | Symptom | What to check |
 | --- | --- |
 | K3s API is unavailable | Selected kubeconfig, API tunnel or direct network access, node readiness, and remote service logs with `ssh -t USER@VPS_ADDRESS 'sudo journalctl -u k3s -n 100'` |
-| `CreateContainerConfigError` | The `psql-server-auth` Secret exists in `applications` and has a nonempty `password` key |
+| `CreateContainerConfigError` | The `psql-server-auth` Secret exists in `infrastructure` and has a nonempty `password` key |
 | `ImagePullBackOff` | Pod events, outbound DNS and HTTPS, registry access, and the complete pinned image reference |
 | Pod Pending | Scheduling events, CPU and memory capacity, node taints, and PVC binding |
 | PVC Pending after apply | Local-path provisioner, storage class, disk capacity, and pod scheduling; `WaitForFirstConsumer` needs a schedulable pod |
 | PVC size increase is rejected | Local-path does not support PVC expansion; files can already grow beyond the request into available disk space |
 | `CrashLoopBackOff` | Current and previous logs, image/data-version compatibility, volume permissions, and available disk space |
-| Pod is `OOMKilled` | Memory use and the `1Gi` limit; adjust capacity after checking server headroom |
+| Pod is `OOMKilled` | Memory use and the fixed `2Gi` limit; adjust capacity after checking server headroom |
+| VPA resource type is not recognized | Install compatible VPA CRDs and controllers before applying the manifests |
+| VPA does not update requests | Check VPA recommendations and conditions, the `InPlace` feature gate, metrics availability, and node capacity |
 | Password authentication fails | The database's actual user/password; changing the Secret does not rotate an initialized password |
 | Application cannot connect | Service DNS, namespace, selected pod readiness, application credentials, and NetworkPolicies |
 | Workstation cannot connect | Local `kubectl port-forward` is running with the correct kubeconfig, the API tunnel is running if used, and the database tool uses the local forwarded port |
@@ -652,7 +681,7 @@ Keep logs and diagnostic output private if they contain application information.
 For a restarted container, inspect its previous logs:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n applications \
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   logs psql-server-0 --previous --tail=100
 ```
 
@@ -676,9 +705,9 @@ future physical disk migration.
    that no application database was created.
 2. Create `"psqldb-runtime-check"` only for this disposable test, write a test row,
    and record the PVC UID with
-   `kubectl --kubeconfig "$HOME/.kube/ak3s-wsl-test.yaml" -n applications get pvc psql-server-data -o jsonpath='{.metadata.uid}'`.
+   `kubectl --kubeconfig "$HOME/.kube/ak3s-wsl-test.yaml" -n infrastructure get pvc psql-server-data -o jsonpath='{.metadata.uid}'`.
 3. Delete only the pod with
-   `kubectl --kubeconfig "$HOME/.kube/ak3s-wsl-test.yaml" -n applications delete pod psql-server-0`.
+   `kubectl --kubeconfig "$HOME/.kube/ak3s-wsl-test.yaml" -n infrastructure delete pod psql-server-0`.
 4. Wait for the replacement to become ready, reconnect, and verify the row remains.
 5. Reapply the directory and confirm the PVC UID and row are unchanged.
 6. Stop and restart K3s, then reboot only the disposable server or WSL
