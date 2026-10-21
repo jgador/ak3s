@@ -6,6 +6,7 @@
 /inventory.yaml
 /.ak3s/
 /.kube/
+/.postgres/
 /.env
 /.env.*
 !/.env.example

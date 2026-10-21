@@ -68,21 +68,13 @@ The example uses Let's Encrypt staging. After testing issuance, select `letsencr
 
 Optional applications use standard Kubernetes manifests independently of the
 platform. This repository includes a standalone [PostgreSQL recipe](applications/postgres/README.md)
-for the shared `psql-server`, with local persistent storage and private Services.
+for the shared `psql-server`, with local persistent storage and TLS access.
 The `20Gi` local-path request is not a quota: database files can grow into the
 existing disk's free space. Monitor disk use; local-path does not support PVC
 expansion. Each application repository provisions its own `psqldb-<application>`
-database, roles, and migrations. Configure local `kubectl` to access your VPS
-cluster and create the namespace and credential Secret as documented.
-The following commands target production explicitly through
-`~/.kube/ak3s-hetzner.yaml`. Run them yourself when you intend to deploy there.
-From your local repository root, validate and apply the manifests:
-
-```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply --dry-run=server -k applications/postgres
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -k applications/postgres
-```
-
+database, roles, and migrations. Follow the [PostgreSQL update guide](applications/postgres/README.md)
+to reuse your existing server, set a custom DNS name in a private local copy,
+and enable public TLS access with firewall rules restricted to your client IPs.
 The YAML files stay on your workstation; PostgreSQL and its data run on the VPS.
 
 ## Reference

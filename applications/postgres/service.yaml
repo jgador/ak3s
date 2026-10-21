@@ -25,3 +25,24 @@ spec:
     - name: postgres
       port: 5432
       targetPort: postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: psql-server-external
+spec:
+  type: LoadBalancer
+  # With Local traffic policy, K3s ServiceLB forwards to this NodePort.
+  allocateLoadBalancerNodePorts: true
+  # Public traffic must reach the node running the single database replica.
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: psql-server
+    # Never expose an old pod that still runs without the TLS configuration.
+    ak3s.io/postgres-access: public
+  ports:
+    - name: postgres
+      protocol: TCP
+      port: 5432
+      targetPort: postgres

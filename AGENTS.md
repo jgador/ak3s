@@ -30,6 +30,11 @@ Use `gofmt` and tabs for Go, two-space indentation for YAML and Bash, and tabs f
 
 ## Testing Guidelines
 
+Keep one current set of PostgreSQL manifests in `applications/postgres/`, with
+concise update instructions and placeholders for operator DNS names. Test updates
+with existing data and credentials. Applying manifests does not establish
+database readiness or successful authentication.
+
 Use Go's `testing` package, `Test…` names, and `Fuzz…` names for fuzz tests. Test failures, interrupted operations, and repeated runs using simulated host and process dependencies. Normal tests need no root or cluster. Coverage is reported without an enforced minimum. Follow [runtime testing](docs/runtime-testing.md) on disposable environments for installation changes; distinguish automated checks from live validation.
 
 ## Security, Configuration & Agent Instructions

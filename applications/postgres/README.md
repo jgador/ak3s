@@ -1,88 +1,135 @@
-# Set up PostgreSQL from WSL
+# Update the existing PostgreSQL server
 
-Run these commands in **WSL Bash from the repository root**. You need `kubectl`
-and a working `~/.kube/ak3s-hetzner.yaml` with access to the live production cluster.
+Run these commands yourself in WSL Bash from the repository root. They select
+production explicitly. Keep the existing `psql-server-auth` Secret and
+`psql-server-data` PVC; this update retains the database image, data, and passwords.
+It adds public TCP `5432`, mandatory TLS and SCRAM authentication for TCP clients,
+and automatic certificate reloads. The single database replica restarts briefly.
 
-The cluster needs the `local-path` storage provisioner. Before deploying, follow
-[Install VPA from WSL](../../docs/vpa.md) once per cluster. PostgreSQL uses VPA
-`InPlace`; its manifest does not install the required CRDs and controllers.
+## 1. Check the current server and prepare access
 
-## 1. Check access and create the namespace
-
-Confirm that the nodes belong to your intended production cluster:
+Back up the database before updating. Confirm the intended cluster, readiness,
+and login with your existing administrator password:
 
 ```bash
 kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" get nodes
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
+  rollout status statefulset/psql-server --timeout=300s
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
+  exec -it psql-server-0 -- psql -h 127.0.0.1 -U postgres -d postgres -W \
+    -c 'SELECT current_user, current_database();'
 ```
 
-Create `infrastructure`, or retain it if it already exists:
+Resolve any failure before continuing. Create a DNS A record for your chosen
+hostname, such as `psql.ak3s.example.com`, pointing at your VPS's IPv4. With
+Cloudflare, select **DNS only**. Keep port `80` available for certificate
+validation. Allow TCP `5432` only from your client IPs in the provider firewall
+and host Kubernetes forwarding rules; a host INPUT rule alone may not filter
+ServiceLB traffic. Port `5432` must be free on the VPS.
+
+For Hetzner Server Auction and other Hetzner dedicated servers, use **Hetzner
+Robot → Servers → your server → Firewall**. Cloud Console firewalls apply to Cloud servers.
+If the Robot firewall is active, allow incoming IPv4 TCP destination port `5432`
+from your client IPs, with unrestricted source ports and TCP flags. Preserve
+existing rules and allow reply traffic in any outgoing filter; Robot is stateless.
+
+All TCP clients, including cluster applications, must use TLS after this update.
+Existing SCRAM passwords work unchanged; reset older MD5 passwords to SCRAM
+before updating. Changing the Kubernetes password Secret does not rotate an
+initialized database's password. The certificate covers your public hostname;
+clients using `verify-full` must use that hostname. On a multi-node cluster,
+point DNS at the node running PostgreSQL because the Service uses
+`externalTrafficPolicy: Local`.
+
+## 2. Set your hostname and apply
+
+Copy the manifests into the ignored `.postgres/deployment/` directory. Replace
+`REPLACE_WITH_POSTGRES_HOSTNAME` in its `certificate.yaml` with your chosen DNS
+name. Keep real DNS names and operator settings out of tracked files:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" create namespace infrastructure \
-  --dry-run=client -o yaml | kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -f -
+mkdir -p .postgres/deployment
+cp applications/postgres/*.yaml applications/postgres/*.conf \
+  applications/postgres/*.sh .postgres/deployment/
 ```
 
-## 2. Set the administrator password
-
-For the first installation, replace `REPLACE_WITH_YOUR_PASSWORD` in the block below
-with your chosen password, then run it. Keep the single quotes; if the password
-contains a single quote, use `'\''` for that character inside the quoted value.
-The block creates the `psql-server-auth` Secret and removes the private temporary
-file. Pasting a password into a command can save it in shell history; keep the
-edited block private and do not save it in this repository.
+After editing the local certificate file, issue the certificate first. This uses
+AK3S's existing `letsencrypt-production` ClusterIssuer and NGINX HTTP validation:
 
 ```bash
-(
-  set +x
-  set -euo pipefail
-  umask 077
-  mkdir -p .tmp
-  postgres_password_file=$(mktemp .tmp/postgres-password.XXXXXX)
-  trap 'rm -f -- "$postgres_password_file"' EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  postgres_password='REPLACE_WITH_YOUR_PASSWORD'
-  if [[ -z "$postgres_password" || "$postgres_password" == 'REPLACE_WITH_YOUR_PASSWORD' ]]; then
-    printf 'Replace the password placeholder before running this block.\n' >&2
-    exit 1
-  fi
-  printf '%s' "$postgres_password" > "$postgres_password_file"
-  unset postgres_password
-  kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
-    create secret generic psql-server-auth --from-file=password="$postgres_password_file"
-)
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" \
+  apply -f .postgres/deployment/certificate.yaml
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
+  wait --for=condition=Ready certificate/psql-server-tls --timeout=300s
 ```
 
-Save the password in your password manager. If this server's Secret already
-exists, reuse it and skip this step. PostgreSQL reads this password when
-initializing an empty data directory; changing the Secret later does not rotate
-the database password.
-
-## 3. Deploy PostgreSQL
-
-Apply all the manifests with one command:
+Continue only when the certificate is Ready:
 
 ```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -k applications/postgres
-```
-
-`-k` uses `kustomization.yaml` to apply `pvc.yaml`, `service.yaml`, and
-`statefulset.yaml` in `infrastructure`, including both Services and the VPA.
-You do not need to apply each file separately.
-
-Wait for PostgreSQL to become ready:
-
-```bash
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" \
+  apply --dry-run=server -k .postgres/deployment
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -k .postgres/deployment
 kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
   rollout status statefulset/psql-server --timeout=300s
 ```
 
-Verify login using the password from step 2:
+K3s ServiceLB exposes the VPS's port `5432`. Keep NodePort allocation enabled:
+ServiceLB uses the allocated NodePort with `externalTrafficPolicy: Local`.
+Clients connect on `5432`; keep other public ports restricted in the firewall.
+The existing private Services remain available. Certificate renewal reloads
+PostgreSQL without a restart after Kubernetes projects the updated Secret.
 
-```bash
-kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" -n infrastructure \
-  exec -it psql-server-0 -- psql -h 127.0.0.1 -U postgres -d postgres -W
+## 3. Connect with pgAdmin
+
+Use your hostname without `https://`, port `5432`, maintenance database `postgres`,
+and your existing database account and password. In **Properties → Parameters**,
+set the following values; use **+** to add missing entries:
+
+| Parameter | Keyword | Value |
+|---|---|---|
+| SSL mode | `sslmode` | `require` |
+| Connection timeout | `connect_timeout` | `20` |
+| SSL negotiation | `sslnegotiation` | `direct` |
+| GSS encmode | `gssencmode` | `disable` |
+| Root certificate | `sslrootcert` | Leave blank |
+
+Leave client certificate and client key blank. These settings encrypt the
+connection without requiring a local CA certificate file. `require` does not
+verify the server's certificate or hostname. For server identity verification,
+use `verify-full` with a trusted CA bundle instead.
+
+Direct TLS requires PostgreSQL 17+ on both the server and client library. Windows
+clients may try GSS/Kerberos encryption before TLS even with `sslnegotiation=direct`;
+`gssencmode=disable` avoids that negotiation and retains TLS encryption. These
+settings were verified with pgAdmin 9.18's bundled Windows client.
+
+Equivalent PostgreSQL connection string, with a placeholder hostname and no
+embedded password:
+
+```text
+host=REPLACE_WITH_POSTGRES_HOSTNAME port=5432 dbname=postgres user=postgres sslmode=require sslnegotiation=direct gssencmode=disable connect_timeout=20
 ```
 
-Exit with `\q`. Applications inside Kubernetes connect to
-`psql-server.infrastructure.svc.cluster.local:5432` using their own database accounts.
+Verify the connection in the Query Tool:
+
+```sql
+SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid();
+```
+
+Expect `true`. Also verify that plaintext connections fail and clients outside
+the firewall allowlist cannot reach the port.
+
+## Later manifest changes
+
+Refresh the private copy from `applications/postgres/`, restore your hostname in
+`certificate.yaml`, and repeat step 2. `kubectl apply` reconciles resources with the same name
+and namespace; Pod template changes restart PostgreSQL. It does not delete
+resources removed from YAML, migrate data for PostgreSQL major upgrades, or
+rotate database passwords. Keep the current PVC and Secret, and avoid changing
+immutable identity or storage fields. If interrupted, fix the error and reapply
+the same configuration.
+
+To close public access, close its firewall rule and delete
+`service/psql-server-external` in `infrastructure`. Remove that Service document
+from your private copy before later applies, which would recreate it. TLS stays
+enabled for the remaining private Services.

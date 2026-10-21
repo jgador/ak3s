@@ -5,3 +5,9 @@ resources:
   - pvc.yaml
   - service.yaml
   - statefulset.yaml
+  - certificate.yaml
+configMapGenerator:
+  - name: psql-server-config
+    files:
+      - pg_hba.conf
+      - start-postgres.sh
