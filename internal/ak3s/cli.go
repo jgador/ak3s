@@ -39,6 +39,7 @@ Commands:
   upgrade   Apply this AK3S release's pinned versions; allow a safe K3s upgrade
   uninstall Remove local K3s and its data using the generated upstream script
   status    Read this node's state and cluster resources
+  headlamp-token Print a one-hour Headlamp viewer login token
   dashboard-snapshot Print sanitized live dashboard data as JSON (read only)
   config    Print merged configuration, or --defaults for embedded defaults
   render    Validate and render K3s, Helm values and Kubernetes resources
@@ -61,6 +62,9 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		return err
 	}
 	command := args[0]
+	if command == "headlamp-token" {
+		return a.headlampToken(ctx, args[1:])
+	}
 	switch command {
 	case "install", "apply", "upgrade", "status", "config", "render", "version", "uninstall", "dashboard-snapshot":
 	default:

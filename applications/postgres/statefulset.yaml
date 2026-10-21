@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: psql-server
+spec:
+  serviceName: psql-server-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/instance: psql-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/instance: psql-server
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: docker.io/library/postgres:18.6-bookworm@sha256:afc7e2d441324c0388fa80c3d24f733b4194a4eb7f47dd8ee2b08eb1a24a647c
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              # Keep only the built-in maintenance database. Application
+              # repositories provision their own psqldb-<application> databases.
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: psql-server-auth
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/18/docker
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            # Practical startup budget, not an official hardware minimum:
+            # https://www.postgresql.org/docs/18/runtime-config-resource.html
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            # Fixed limits are four times the initial requests.
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          resizePolicy:
+            - resourceName: cpu
+              restartPolicy: NotRequired
+            - resourceName: memory
+              restartPolicy: NotRequired
+          startupProbe:
+            exec:
+              command: [sh, -c, 'exec pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: [sh, -c, 'exec pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: [sh, -c, 'exec pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: psql-server-data
+---
+# Requires the VPA CRDs and controllers to be installed before deployment.
+# InPlace requires VPA 1.7+ with --feature-gates=InPlace=true on both the
+# updater and admission controller. This mode is alpha.
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: psql-server
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: psql-server
+  updatePolicy:
+    # Defer unsupported resizes instead of evicting the database Pod.
+    updateMode: InPlace
+    # Allow updates for this single replica; this is not an availability guarantee.
+    minReplicas: 1
+  resourcePolicy:
+    containerPolicies:
+      - containerName: postgres
+        controlledResources: [cpu, memory]
+        # Keep limits fixed so VPA cannot lower the memory limit.
+        controlledValues: RequestsOnly
+        # Keep request caps below limits to preserve Burstable QoS during resize.
+        minAllowed:
+          cpu: 500m
+          memory: 512Mi
+        maxAllowed:
+          cpu: 1500m
+          memory: 1536Mi

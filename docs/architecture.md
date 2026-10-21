@@ -4,6 +4,17 @@ AK3S keeps infrastructure costs low by running a K3s control plane, applications
 
 See [how AK3S uses upstream K3s](k3s-lifecycle.md) for the division of responsibilities and the installation sequence.
 
+[Optional applications](applications.md) use standard Kubernetes manifests and
+independent deployment workflows. The repository includes a PostgreSQL Kustomize
+base that operators apply with local `kubectl` connected to the VPS API. The
+manifests stay on the workstation. PostgreSQL uses one StatefulSet replica,
+private Services, and a separately declared `20Gi` local-path PVC using the
+node's existing disk. The request is not a storage quota; database growth consumes
+the filesystem's available space. Local-path does not support PVC expansion or
+replicate data to other nodes. Server resource names use `psql-`; application
+repositories provision their own `psqldb-` databases, roles, and migrations.
+Operator overrides and credentials stay outside tracked defaults.
+
 ## Traffic and services
 
 Application DNS points to the VPS. ServiceLB exposes ports 80 and 443, and NGINX routes requests to application Services. cert-manager issues and renews HTTPS certificates. Leave these ports free and make port 80 publicly reachable for Let's Encrypt HTTP-01 validation, which checks control of the domain through an HTTP request.

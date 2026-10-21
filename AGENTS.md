@@ -36,6 +36,17 @@ Use Go's `testing` package, `Test…` names, and `Fuzz…` names for fuzz tests.
 
 Keep credentials and rendered secrets private. Use fictional examples. Preserve ownership, identity, token, checksum, and upgrade checks. Store operator overrides outside tracked defaults.
 
+`~/.kube/ak3s-hetzner.yaml` identifies the live production cluster. Deployment
+examples using this path are instructions for the human operator, not permission
+for an agent to execute them. Do not read production credentials, contact the
+production API, or access the production VPS through SSH or provider tools unless
+the user explicitly authorizes the specific production operation. General coding,
+documentation, verification, and testing requests do not grant that authorization.
+For cluster tests, use a dedicated disposable-cluster kubeconfig, pass
+`--kubeconfig` explicitly to every Kubernetes or Helm command, and verify its
+target before making changes. Never rely on inherited `KUBECONFIG` or the current
+context, and never use production as a fallback when a test cluster is unavailable.
+
 Develop on `master`. Backport selected fixes through pull requests into protected
 `release/<major>.<minor>` branches. Publish manually from a release branch; see
 [releases and backports](docs/releases.md).

@@ -148,7 +148,7 @@ browser integration, or the cluster's NetworkPolicy enforcement.
 Then check Headlamp:
 
 ```bash
-k -n headlamp create token headlamp-viewer --duration=1h
+sudo ak3s headlamp-token
 k auth can-i get pods --all-namespaces --as=system:serviceaccount:headlamp:headlamp-viewer
 k auth can-i get secrets -n demo --as=system:serviceaccount:headlamp:headlamp-viewer
 k auth can-i create deployments.apps -n demo --as=system:serviceaccount:headlamp:headlamp-viewer

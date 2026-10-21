@@ -14,6 +14,7 @@ LDFLAGS = -s -w -X github.com/jgador/ak3s/internal/ak3s.Version=$(VERSION) -X gi
 # These names are tasks, so run them even if a file has the same name.
 .PHONY: build test verify release secrets-setup secrets-scan secrets-staged secrets-history test-secrets
 .PHONY: dashboard-image install-local test-install-local port-forward port-forward-status port-forward-stop test-port-forward test-release
+.PHONY: headlamp-token
 
 # Build bin/ak3s for the current OS and architecture without C bindings.
 build:
@@ -84,6 +85,11 @@ port-forward-stop:
 
 test-port-forward:
 	bash scripts/port-forward.test.sh
+
+# Print a temporary read-only Headlamp login token for the local K3s cluster.
+headlamp-token:
+	@$(MAKE) --no-print-directory build >/dev/null
+	@bash scripts/headlamp-token.sh
 
 # Cross-compile static Linux binaries for amd64 and arm64 into dist/.
 release:

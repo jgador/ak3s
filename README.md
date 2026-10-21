@@ -66,12 +66,32 @@ sudo k3s kubectl apply -f app.yaml
 
 The example uses Let's Encrypt staging. After testing issuance, select `letsencrypt-production` and enable `nginx.org/ssl-redirect`.
 
+Optional applications use standard Kubernetes manifests independently of the
+platform. This repository includes a standalone [PostgreSQL recipe](applications/postgres/README.md)
+for the shared `psql-server`, with local persistent storage and private Services.
+The `20Gi` local-path request is not a quota: database files can grow into the
+existing disk's free space. Monitor disk use; local-path does not support PVC
+expansion. Each application repository provisions its own `psqldb-<application>`
+database, roles, and migrations. Configure local `kubectl` to access your VPS
+cluster and create the namespace and credential Secret as documented.
+The following commands target production explicitly through
+`~/.kube/ak3s-hetzner.yaml`. Run them yourself when you intend to deploy there.
+From your local repository root, validate and apply the manifests:
+
+```bash
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply --dry-run=server -k applications/postgres
+kubectl --kubeconfig "$HOME/.kube/ak3s-hetzner.yaml" apply -k applications/postgres
+```
+
+The YAML files stay on your workstation; PostgreSQL and its data run on the VPS.
+
 ## Reference
 
 - [VPS and firewall setup](docs/vps.md)
 - [WSL2 testing before a VPS deployment](docs/wsl-testing.md)
 - [Runtime testing on WSL2 or a VPS](docs/runtime-testing.md)
 - [Configuration](docs/configuration.md)
+- [Optional applications and PostgreSQL](docs/applications.md)
 - [Access, upgrades, backups, and troubleshooting](docs/operations.md)
 - [Architecture and availability](docs/architecture.md)
 
@@ -107,7 +127,9 @@ For a local AK3S test cluster, `make port-forward` forwards the dashboard and al
 three tool Services in the background. Open `http://127.0.0.1:5173` for the
 dashboard, including from Windows through WSL. Use `make port-forward-status`
 to check them and `make port-forward-stop` when finished. Node.js is only needed
-for frontend development. See [local UI access](docs/operations.md#start-all-uis-for-local-testing)
+for frontend development. Run `sudo ak3s headlamp-token` for a one-hour viewer
+login token, or `make headlamp-token` from a source checkout.
+See [local UI access](docs/operations.md#start-all-uis-for-local-testing)
 and [building the dashboard image](dashboard/README.md#build-and-deploy-local-source).
 
 For a fresh local WSL installation test, invoke `$clean-slate` from this repository

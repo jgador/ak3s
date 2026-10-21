@@ -66,6 +66,18 @@ import time
 
 fixture = Path(os.environ["PF_FIXTURE"])
 args = sys.argv[1:]
+if len(args) > 6 and args[5] == "get":
+    name = args[6].removeprefix("service/")
+    namespace = {"headlamp": "headlamp", "dashboard": "ak3s"}.get(name, "observability")
+    assert args == ["kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml",
+                    "-n", namespace, "get", f"service/{name}", "--ignore-not-found",
+                    "-o", "name", "--request-timeout=10s"]
+    if (fixture / "inspect-failure").exists():
+        sys.exit("Simulated API failure")
+    missing = fixture / "missing-service"
+    if not missing.exists() or missing.read_text() != name:
+        print(f"service/{name}")
+    sys.exit(0)
 name = args[-2].removeprefix("service/")
 port, remote = {
     "headlamp": (8080, 80),
@@ -86,7 +98,9 @@ if (fixture / "stall-service").exists() and (fixture / "stall-service").read_tex
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
+        shared = (fixture / "shared-paths").exists()
+        code = 404 if shared and name == "headlamp" and self.path == "/" else 200
+        self.send_response(code)
         self.end_headers()
         self.wfile.write(name.encode())
 
@@ -113,9 +127,37 @@ test_name='ports available before testing'
 # Never stop or replace a listener that was running before the suite.
 assert_stopped
 
+test_name='missing Headlamp is reported before starting forwards'
+printf '%s' headlamp > "$fixture/missing-service"
+capture start
+expect_status 1
+[[ "$output" == *'service/headlamp in namespace headlamp is missing'* ]] || fail 'Missing Service was not identified.'
+assert_stopped
+rm -- "$fixture/missing-service"
+pass
+
+test_name='a later missing Service prevents all forwards from starting'
+printf '%s' dashboard > "$fixture/missing-service"
+capture start
+expect_status 1
+[[ "$output" == *'service/dashboard in namespace ak3s is missing'* ]] || fail 'Missing dashboard was not identified.'
+assert_stopped
+rm -- "$fixture/missing-service"
+pass
+
+test_name='cluster inspection failure is reported before starting forwards'
+touch "$fixture/inspect-failure"
+capture start
+expect_status 1
+[[ "$output" == *'Cannot inspect service/headlamp in namespace headlamp'* ]] || fail 'API failure was not identified.'
+assert_stopped
+rm -- "$fixture/inspect-failure"
+pass
+
 test_name='all four listeners start, detach, and serve HTTP'
 capture start
 expect_status 0
+[[ "$output" == *'headlamp           running  http://127.0.0.1:8080'* ]] || fail 'Default Headlamp URL is missing.'
 for entry in '8080 headlamp' '8428 victoria-metrics' '9428 victoria-logs' '5173 dashboard'; do
   read -r port name <<< "$entry"
   response=$(curl --noproxy '*' --fail --silent --max-time 2 "http://127.0.0.1:$port/")
@@ -132,6 +174,18 @@ expect_status 0
 [[ $(cat "$fixture/.tmp/port-forward/"*.pid) == "$before" ]] || fail 'Running processes were replaced.'
 capture status
 expect_status 0
+pass
+
+test_name='shared Headlamp path uses the dashboard URL without replacing listeners'
+touch "$fixture/shared-paths"
+capture start
+expect_status 0
+[[ "$output" == *'headlamp           running  http://127.0.0.1:5173/headlamp/'* ]] || fail 'Shared Headlamp URL is incorrect.'
+[[ $(cat "$fixture/.tmp/port-forward/"*.pid) == "$before" ]] || fail 'Running processes were replaced.'
+capture status
+expect_status 0
+[[ "$output" == *'headlamp           running  http://127.0.0.1:5173/headlamp/'* ]] || fail 'Status lost the shared Headlamp URL.'
+rm -- "$fixture/shared-paths"
 pass
 
 test_name='a dead listener is reported and restarted'
@@ -246,6 +300,11 @@ test_name='tools-only mode skips the deployed dashboard'
 capture start --no-dashboard
 expect_status 0
 [[ -z $(ss -H -ltn 'sport = :5173') ]] || fail 'Dashboard started in tools-only mode.'
+touch "$fixture/shared-paths"
+capture start --no-dashboard
+expect_status 0
+[[ "$output" == *'headlamp           running  http://127.0.0.1:8080/headlamp/'* ]] || fail 'Direct shared Headlamp URL is incorrect.'
+rm -- "$fixture/shared-paths"
 capture stop
 expect_status 0
 pass
