@@ -2,7 +2,6 @@
 /dist/
 /coverage.out
 /values.yaml
-/apps.yaml
 /cluster.yaml
 /inventory.yaml
 /.ak3s/

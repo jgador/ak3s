@@ -87,7 +87,7 @@ spec:
 ---
 # Requires the VPA CRDs and controllers to be installed before deployment.
 # InPlace requires VPA 1.7+ with --feature-gates=InPlace=true on both the
-# updater and admission controller. This mode is alpha in VPA 1.8.
+# updater and admission controller. This mode is alpha.
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:

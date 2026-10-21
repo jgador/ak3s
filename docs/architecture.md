@@ -13,8 +13,7 @@ node's existing disk. The request is not a storage quota; database growth consum
 the filesystem's available space. Local-path does not support PVC expansion or
 replicate data to other nodes. Server resource names use `psql-`; application
 repositories provision their own `psqldb-` databases, roles, and migrations.
-Operator overrides and credentials stay outside tracked defaults. The AK3S binary
-contains no application catalog or application deployment commands.
+Operator overrides and credentials stay outside tracked defaults.
 
 ## Traffic and services
 

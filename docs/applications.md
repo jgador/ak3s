@@ -9,9 +9,8 @@ cluster.
 The repository includes a standalone PostgreSQL Kustomize base for the shared
 `psql-server`, private Services, and a `20Gi` PVC using K3s's `local-path` storage
 class on the node's existing disk. The request is not a quota or reserved space;
-database files can grow beyond it while the filesystem has free space. No CSI
-driver or separate cloud volume is required. Local-path does not support PVC
-expansion. Follow the
+database files can grow beyond it while the filesystem has free space.
+Local-path does not support PVC expansion. Follow the
 [manual PostgreSQL deployment guide](../applications/postgres/README.md) for
 Hetzner Cloud or another VPS provider.
 

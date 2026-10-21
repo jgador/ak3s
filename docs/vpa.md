@@ -14,7 +14,7 @@ Resolve any metrics errors before installing.
 ## Install VPA once per cluster
 
 This uses [Fairwinds VPA chart](https://github.com/FairwindsOps/charts/tree/master/stable/vpa)
-5.1.0 with VPA 1.7.1, compatible with the repository's Kubernetes 1.37 version.
+5.1.0 with VPA 1.7.1, which requires Kubernetes 1.28 or later.
 It installs the CRDs, permissions, recommender, updater, admission controller,
 and webhook certificates. It uses the existing Metrics Server.
 

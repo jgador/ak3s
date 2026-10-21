@@ -219,7 +219,7 @@ export function Overview({ snapshot }: { snapshot: DashboardSnapshot }) {
                   Headlamp requires a Kubernetes login token. Create a temporary
                   viewer token on the cluster host:
                 </p>
-                <CodeBlock code="sudo k3s kubectl -n headlamp create token headlamp-viewer --duration=1h" />
+                <CodeBlock code="sudo ak3s headlamp-token" />
                 <p>Enter the token in Headlamp. Keep it private.</p>
               </div>
             )}
